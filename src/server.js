@@ -1,4 +1,6 @@
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
 export function createServer() {
   return http.createServer((req, res) => {
@@ -12,7 +14,11 @@ export function createServer() {
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
-  const port = Number(process.env.PORT || 3000);
-  createServer().listen(port, '0.0.0.0', () => console.log(`iGaming Radar listening on ${port}`));
+export function startServer({ port = Number(process.env.PORT || 3000), host = '0.0.0.0' } = {}) {
+  const server = createServer();
+  server.listen(port, host, () => console.log(`iGaming Radar listening on ${port}`));
+  return server;
 }
+
+const isDirectRun = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (isDirectRun) startServer();
