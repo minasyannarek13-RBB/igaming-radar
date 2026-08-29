@@ -18,10 +18,11 @@ function normalizeTarget(input) {
   if (url.username || url.password) throw new Error('target credentials are not supported');
 
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+  const ipCandidate = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
   if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) {
     throw new Error('target must be a public hostname');
   }
-  if (isIP(hostname)) throw new Error('IP literal targets are not supported');
+  if (isIP(ipCandidate)) throw new Error('IP literal targets are not supported');
   if (url.port && !['80', '443'].includes(url.port)) throw new Error('non-standard target ports are not supported');
 
   return url;
