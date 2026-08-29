@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scanTarget, hostnameMatches } from '../src/scanner.js';
+import { scanTarget, hostnameMatches, normalizeTarget } from '../src/scanner.js';
 import { OBSERVATION_STATES } from '../src/evidence.js';
 
 function fakeResponse({ url = 'https://casino.example/', status = 200, headers = {}, body = '' } = {}) {
@@ -17,6 +17,17 @@ function fakeResponse({ url = 'https://casino.example/', status = 200, headers =
 test('hostname matching is suffix-safe', () => {
   assert.equal(hostnameMatches('assets.cloudfront.net', 'cloudfront.net'), true);
   assert.equal(hostnameMatches('cloudfront.net.evil.example', 'cloudfront.net'), false);
+});
+
+test('target normalization rejects local and IP literal targets', () => {
+  for (const target of ['localhost', 'service.local', '127.0.0.1', '[::1]', 'https://example.com:8080']) {
+    assert.throws(() => normalizeTarget(target));
+  }
+  assert.equal(normalizeTarget('casino.example').hostname, 'casino.example');
+});
+
+test('target normalization rejects embedded credentials', () => {
+  assert.throws(() => normalizeTarget('https://user:pass@example.com'));
 });
 
 test('returns Not observable externally instead of inventing a dependency', async () => {
