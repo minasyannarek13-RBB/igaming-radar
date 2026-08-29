@@ -1,0 +1,54 @@
+name: Blind Scan QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/scanner.js'
+      - 'src/evidence.js'
+      - 'scripts/blind-scan.js'
+      - 'validation/blind-targets.txt'
+      - '.github/workflows/blind-scan.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  blind-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Unit and contract tests
+        run: npm test
+
+      - name: Run 30-domain blind scan
+        id: blind
+        continue-on-error: true
+        run: npm run qa:blind
+
+      - name: Upload blind-scan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blind-scan-results
+          path: validation/blind-results.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce blind gate
+        if: steps.blind.outcome != 'success'
+        run: |
+          echo 'Blind scan release gate did not pass. Inspect blind-scan-results artifact.'
+          exit 1
