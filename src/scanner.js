@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { OBSERVATION_STATES, validateDependencyEdge, validateEvidence } from './evidence.js';
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -14,6 +15,15 @@ function normalizeTarget(input) {
   const candidate = /^https?:\/\//i.test(input.trim()) ? input.trim() : `https://${input.trim()}`;
   const url = new URL(candidate);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('only http/https targets are supported');
+  if (url.username || url.password) throw new Error('target credentials are not supported');
+
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+  if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) {
+    throw new Error('target must be a public hostname');
+  }
+  if (isIP(hostname)) throw new Error('IP literal targets are not supported');
+  if (url.port && !['80', '443'].includes(url.port)) throw new Error('non-standard target ports are not supported');
+
   return url;
 }
 
