@@ -6,11 +6,11 @@ This file is the single source of truth for Founder Early Access readiness.
 |---|---:|---:|
 | Executable runtime | PASS | PASS |
 | Evidence/data contracts | PASS | PASS |
-| Scanner executable core | PASS | PASS (fixture QA only) |
-| Free Scan API | PASS | IMPLEMENTED; fresh CI/runtime verification pending |
+| Scanner executable core | PASS | PASS (fixture QA + independent CI) |
+| Free Scan API | PASS | PASS (independent CI) |
 | Blind scans | 30 | 0 executed / 30-target corpus prepared |
 | Useful scans | >=90% | NOT MEASURED |
-| Fabricated dependencies | 0 | 0 in scanner fixture QA; blind corpus pending |
+| Fabricated dependencies | 0 | 0 in fixture/adversarial QA; blind corpus pending |
 | HIGH-confidence false attribution | 0 | NOT MEASURED |
 | Historical regression | PASS | PENDING |
 | Crypto purchase E2E | PASS | PENDING |
@@ -20,8 +20,9 @@ This file is the single source of truth for Founder Early Access readiness.
 | Commercial gate | OPEN | CLOSED |
 
 ## Evidence log
-- 2026-08-30: Added GitHub Actions CI definition at `.github/workflows/ci.yml` for Node 20/22 `npm test`. No workflow run is yet recorded, so this is not counted as fresh CI PASS evidence.
-- 2026-08-30: Added `POST /api/scan` to the executable HTTP runtime. It validates `target`, rejects malformed JSON, delegates to `scanTarget`, and has API contract tests in `test/health.test.js`. Fresh independent execution of these new API tests is still pending; implementation alone is not treated as PASS evidence.
+- 2026-08-30: GitHub Actions run `33281313262` independently executed the committed test suite after the CI lockfile/cache configuration bug was removed. Node 20 completed 16 tests with 16 passed / 0 failed; Node 22 job also completed successfully. This covers evidence contracts, runtime health/404 behavior, `POST /api/scan` API validation/delegation, suffix-spoof resistance, no-signal non-fabrication, explicit CloudFront provenance, Cloudflare header provenance, and fetch-failure `Not observable externally` behavior. Free Scan API is therefore marked PASS for executable CI evidence. Commit fixing CI: `d56ffae0266f6a950f107de0b4d311b56d678b0b`.
+- 2026-08-30: Initial CI run failed before tests because `actions/setup-node` was configured with `cache: npm` while the repository had no dependency lockfile. This was a CI configuration failure, not a product test failure, and was corrected by removing the lockfile-dependent cache setting.
+- 2026-08-30: Added `POST /api/scan` to the executable HTTP runtime. It validates `target`, rejects malformed JSON, delegates to `scanTarget`, and has API contract tests in `test/health.test.js`.
 - 2026-08-30: Added executable blind-scan harness `scripts/blind-scan.js`, `npm run qa:blind`, and a fixed 30-domain public validation corpus in `validation/blind-targets.txt`. The harness refuses corpora other than exactly 30 targets, validates observation state/provenance shape, records full per-target results, and only passes when >=90% of results are either valid Observed or explicit Not observable externally with zero invalid records. Corpus is prepared but has not yet been executed, therefore Blind scans remains 0.
 - 2026-08-30: Connected Vercel inspection found project `igaming-radar` with a READY production deployment, but a direct fetch of `/health` returned Vercel 404 NOT_FOUND. It is therefore not accepted as a usable Radar deployment.
 - 2026-08-30: Added executable provenance-first scanner core in `src/scanner.js` plus `test/scanner.test.js`. The scanner currently emits only direct public observations for a deliberately narrow CDN/Cloud fingerprint set (Cloudflare response header and explicit CloudFront/Akamai/Fastly hostnames). All emitted dependency edges are LOW confidence with evidence references; absence/fetch failure returns explicit `Not observable externally` rather than guessing. Five scanner fixture/adversarial tests passed locally against the committed implementation shape, including suffix-spoof resistance, no-signal non-fabrication, explicit CloudFront provenance, Cloudflare header provenance, and fetch-failure behavior. Commits: `3dd41373348d6c6e751ec938e5e77fb8046edb94`, `f40d1bf0fc950ddd62ff9504626214d10f11fc70`.
