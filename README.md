@@ -12,7 +12,9 @@ Detect infrastructure degradation across operators, map shared iGaming dependenc
 
 ## Founder Early Access release gate
 
-- Executable runtime: BUILDING
+Canonical details and evidence live in `docs/RELEASE_GATE.md`.
+
+- Executable runtime: PASS
 - Blind scans: 0/30 verified
 - Useful rate target: >=90%
 - Fabricated dependencies target: 0
