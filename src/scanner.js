@@ -1,11 +1,14 @@
 import { isIP } from 'node:net';
 import { lookup as dnsLookup } from 'node:dns/promises';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { OBSERVATION_STATES, validateDependencyEdge, validateEvidence } from './evidence.js';
 
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_OBSERVED_SURFACES = 100;
 const MAX_OBSERVED_RESOURCES = 250;
 const MAX_REDIRECTS = 5;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 const HOST_FINGERPRINTS = Object.freeze([
   { suffix: 'cloudfront.net', provider: 'Amazon CloudFront', capability: 'CDN/Cloud', component: 'CDN edge' },
@@ -32,46 +35,129 @@ function normalizeTarget(input) {
   return url;
 }
 
+function mappedIpv4FromIpv6(address) {
+  const value = String(address || '').toLowerCase();
+  if (!value.startsWith('::ffff:')) return null;
+  const tail = value.slice('::ffff:'.length);
+  if (isIP(tail) === 4) return tail;
+  const words = tail.split(':');
+  if (words.length !== 2 || words.some((word) => !/^[0-9a-f]{1,4}$/.test(word))) return null;
+  const high = Number.parseInt(words[0], 16);
+  const low = Number.parseInt(words[1], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+
 function isPrivateIp(address) {
   if (!address || !isIP(address)) return true;
   if (address.includes(':')) {
+    const mapped = mappedIpv4FromIpv6(address);
+    if (mapped) return isPrivateIp(mapped);
     const value = address.toLowerCase();
     return value === '::' || value === '::1' || value.startsWith('fc') || value.startsWith('fd') ||
       value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb') ||
-      value.startsWith('ff') || value.startsWith('2001:db8:') || value.startsWith('::ffff:127.') ||
-      value.startsWith('::ffff:10.') || value.startsWith('::ffff:192.168.') || value.startsWith('::ffff:169.254.');
+      value.startsWith('ff') || value.startsWith('2001:db8:');
   }
   const parts = address.split('.').map(Number);
   const [a, b] = parts;
   return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
-    (a === 192 && b === 0) || (a === 192 && b === 0 && parts[2] === 2) ||
-    (a === 198 && (b === 18 || b === 19)) || (a === 198 && b === 51 && parts[2] === 100) ||
-    (a === 203 && b === 0 && parts[2] === 113) || a >= 224;
+    (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && parts[2] === 100) || (a === 203 && b === 0 && parts[2] === 113) || a >= 224;
 }
 
-async function assertPublicResolution(url, lookupImpl = dnsLookup) {
+async function resolvePublicTarget(url, lookupImpl = dnsLookup) {
   const normalized = normalizeTarget(url.href);
   const answers = await lookupImpl(normalized.hostname, { all: true, verbatim: true });
   if (!Array.isArray(answers) || answers.length === 0) throw new Error('target DNS resolution returned no addresses');
   if (answers.some((answer) => isPrivateIp(answer?.address))) throw new Error('target resolves to a non-public address');
-  return normalized;
+  const addresses = [...new Set(answers.map((answer) => answer.address).filter(Boolean))];
+  if (addresses.length === 0) throw new Error('target DNS resolution returned no usable addresses');
+  return { url: normalized, addresses };
+}
+
+async function assertPublicResolution(url, lookupImpl = dnsLookup) {
+  const resolved = await resolvePublicTarget(url, lookupImpl);
+  return resolved.url;
+}
+
+function responseHeaders(headers) {
+  return { get(name) { const value = headers[String(name).toLowerCase()]; return Array.isArray(value) ? value.join(', ') : value ?? null; } };
+}
+
+function requestPinnedAddress(url, address) {
+  return new Promise((resolve, reject) => {
+    const requestImpl = url.protocol === 'https:' ? httpsRequest : httpRequest;
+    const headers = {
+      host: url.port ? `${url.hostname}:${url.port}` : url.hostname,
+      'user-agent': 'iGaming-Radar-FreeScan/0.1 (+public-observation-only)',
+      accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8'
+    };
+    const request = requestImpl({
+      protocol: url.protocol,
+      hostname: address,
+      family: isIP(address),
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      method: 'GET',
+      headers,
+      servername: url.protocol === 'https:' ? url.hostname : undefined,
+      rejectUnauthorized: true
+    }, (incoming) => {
+      let consumed = false;
+      resolve({
+        url: url.href,
+        status: incoming.statusCode || 0,
+        ok: (incoming.statusCode || 0) >= 200 && (incoming.statusCode || 0) < 300,
+        headers: responseHeaders(incoming.headers),
+        async text() {
+          if (consumed) return '';
+          consumed = true;
+          const chunks = [];
+          let bytes = 0;
+          for await (const chunk of incoming) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            const remaining = MAX_BODY_BYTES - bytes;
+            if (remaining <= 0) break;
+            chunks.push(buffer.subarray(0, remaining));
+            bytes += Math.min(buffer.length, remaining);
+            if (bytes >= MAX_BODY_BYTES) break;
+          }
+          if (!incoming.complete) incoming.destroy();
+          return Buffer.concat(chunks).toString('utf8');
+        }
+      });
+    });
+    request.setTimeout(REQUEST_TIMEOUT_MS, () => request.destroy(new Error('request_timeout')));
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+async function fetchPinnedTarget(url, addresses) {
+  let lastError;
+  for (const address of addresses) {
+    try { return await requestPinnedAddress(url, address); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError || new Error('target_fetch_failed');
 }
 
 async function fetchPublicTarget(initialUrl, { fetchImpl, lookupImpl }) {
   let current = initialUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    await assertPublicResolution(current, lookupImpl);
-    const response = await fetchImpl(current, {
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10_000),
-      headers: { 'user-agent': 'iGaming-Radar-FreeScan/0.1 (+public-observation-only)' }
-    });
-    if (![301, 302, 303, 307, 308].includes(response.status)) return { response, finalUrl: current };
+    const resolved = await resolvePublicTarget(current, lookupImpl);
+    const response = fetchImpl
+      ? await fetchImpl(resolved.url, {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: { 'user-agent': 'iGaming-Radar-FreeScan/0.1 (+public-observation-only)' }
+      })
+      : await fetchPinnedTarget(resolved.url, resolved.addresses);
+    if (![301, 302, 303, 307, 308].includes(response.status)) return { response, finalUrl: resolved.url };
     if (hop === MAX_REDIRECTS) throw new Error('too many redirects');
     const location = response.headers?.get?.('location');
     if (!location) throw new Error('redirect without location');
-    current = normalizeTarget(new URL(location, current).href);
+    current = normalizeTarget(new URL(location, resolved.url).href);
   }
   throw new Error('too many redirects');
 }
@@ -128,17 +214,14 @@ function inventoryExternalSurfaces(resources, operatorHostname) {
       });
     }
     const surface = surfaceMap.get(resource.hostname);
-    if (surface.sampleResources.length < 3) {
-      surface.sampleResources.push({ path: resource.path, attribute: resource.attribute });
-    }
+    if (surface.sampleResources.length < 3) surface.sampleResources.push({ path: resource.path, attribute: resource.attribute });
   }
   return [...surfaceMap.values()];
 }
 
 function evidenceId(index) { return `ev-${String(index).padStart(4, '0')}`; }
 
-export async function scanTarget(input, { fetchImpl = globalThis.fetch, lookupImpl = dnsLookup, now = () => new Date() } = {}) {
-  if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required');
+export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now = () => new Date() } = {}) {
   const target = normalizeTarget(input);
   const observedAt = now().toISOString();
   const evidence = [];
@@ -164,9 +247,7 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, lookupIm
   const hostEvidence = [];
   for (const resource of resources) {
     for (const fingerprint of HOST_FINGERPRINTS) {
-      if (hostnameMatches(resource.hostname, fingerprint.suffix)) {
-        hostEvidence.push({ ...fingerprint, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
-      }
+      if (hostnameMatches(resource.hostname, fingerprint.suffix)) hostEvidence.push({ ...fingerprint, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
     }
   }
 
@@ -187,4 +268,4 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, lookupIm
   return { target: target.hostname, state: OBSERVATION_STATES.OBSERVED, scannedUrl: finalUrl.href, evidence, dependencies: edges, observedSurfaces };
 }
 
-export { assertPublicResolution, extractExternalResources, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, normalizeTarget, HOST_FINGERPRINTS };
+export { assertPublicResolution, extractExternalResources, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, mappedIpv4FromIpv6, normalizeTarget, HOST_FINGERPRINTS };
