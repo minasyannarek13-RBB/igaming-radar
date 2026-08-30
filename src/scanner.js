@@ -4,6 +4,7 @@ import { OBSERVATION_STATES, validateDependencyEdge, validateEvidence } from './
 
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_OBSERVED_SURFACES = 100;
+const MAX_OBSERVED_RESOURCES = 250;
 const MAX_REDIRECTS = 5;
 
 const HOST_FINGERPRINTS = Object.freeze([
@@ -81,26 +82,57 @@ function hostnameMatches(hostname, suffix) {
   return host === normalizedSuffix || host.endsWith(`.${normalizedSuffix}`);
 }
 
-function extractHostnames(html, baseUrl) {
-  const hosts = new Set();
-  const pattern = /(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+function extractExternalResources(html, baseUrl) {
+  const resources = [];
+  const seen = new Set();
+  const pattern = /(src|href)\s*=\s*["']([^"']+)["']/gi;
   let match;
-  while ((match = pattern.exec(html)) !== null) {
+  while ((match = pattern.exec(html)) !== null && resources.length < MAX_OBSERVED_RESOURCES) {
     try {
-      const url = new URL(match[1], baseUrl);
-      if (['http:', 'https:'].includes(url.protocol)) hosts.add(url.hostname.toLowerCase());
+      const url = new URL(match[2], baseUrl);
+      if (!['http:', 'https:'].includes(url.protocol)) continue;
+      const normalized = {
+        url: url.href,
+        hostname: url.hostname.toLowerCase().replace(/\.$/, ''),
+        path: `${url.pathname}${url.search}`,
+        attribute: match[1].toLowerCase()
+      };
+      const key = `${normalized.attribute}|${normalized.url}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        resources.push(normalized);
+      }
     } catch {
       // Ignore malformed public markup; never turn it into evidence.
     }
   }
-  return [...hosts];
+  return resources;
 }
 
-function inventoryExternalSurfaces(hostnames, operatorHostname) {
-  return [...new Set(hostnames)]
-    .filter((hostname) => hostname && hostname !== operatorHostname)
-    .slice(0, MAX_OBSERVED_SURFACES)
-    .map((hostname) => ({ hostname, state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname' }));
+function extractHostnames(html, baseUrl) {
+  return [...new Set(extractExternalResources(html, baseUrl).map((resource) => resource.hostname))];
+}
+
+function inventoryExternalSurfaces(resources, operatorHostname) {
+  const surfaceMap = new Map();
+  for (const resource of resources) {
+    if (!resource.hostname || resource.hostname === operatorHostname) continue;
+    if (!surfaceMap.has(resource.hostname)) {
+      if (surfaceMap.size >= MAX_OBSERVED_SURFACES) break;
+      surfaceMap.set(resource.hostname, {
+        hostname: resource.hostname,
+        state: OBSERVATION_STATES.OBSERVED,
+        attribution: 'UNATTRIBUTED',
+        evidenceClass: 'html_external_hostname',
+        sampleResources: []
+      });
+    }
+    const surface = surfaceMap.get(resource.hostname);
+    if (surface.sampleResources.length < 3) {
+      surface.sampleResources.push({ path: resource.path, attribute: resource.attribute });
+    }
+  }
+  return [...surfaceMap.values()];
 }
 
 function evidenceId(index) { return `ev-${String(index).padStart(4, '0')}`; }
@@ -127,12 +159,14 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, lookupIm
   let html = '';
   try { html = (await response.text()).slice(0, MAX_BODY_BYTES); } catch { html = ''; }
 
-  const extractedHostnames = extractHostnames(html, finalUrl);
-  const observedSurfaces = inventoryExternalSurfaces(extractedHostnames, target.hostname);
+  const resources = extractExternalResources(html, finalUrl);
+  const observedSurfaces = inventoryExternalSurfaces(resources, target.hostname);
   const hostEvidence = [];
-  for (const hostname of extractedHostnames) {
+  for (const resource of resources) {
     for (const fingerprint of HOST_FINGERPRINTS) {
-      if (hostnameMatches(hostname, fingerprint.suffix)) hostEvidence.push({ ...fingerprint, locator: hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
+      if (hostnameMatches(resource.hostname, fingerprint.suffix)) {
+        hostEvidence.push({ ...fingerprint, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
+      }
     }
   }
 
@@ -153,4 +187,4 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, lookupIm
   return { target: target.hostname, state: OBSERVATION_STATES.OBSERVED, scannedUrl: finalUrl.href, evidence, dependencies: edges, observedSurfaces };
 }
 
-export { assertPublicResolution, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, normalizeTarget, HOST_FINGERPRINTS };
+export { assertPublicResolution, extractExternalResources, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, normalizeTarget, HOST_FINGERPRINTS };
