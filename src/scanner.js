@@ -84,7 +84,7 @@ function isPrivateIp(address) {
       value.startsWith('fc') || value.startsWith('fd') ||
       value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb') ||
       value.startsWith('ff') || value.startsWith('64:ff9b:') || value === '64:ff9b::' ||
-      value.startsWith('100:') || value.startsWith('2001:0:') || value.startsWith('2001:2:') ||
+      value.startsWith('100:') || value.startsWith('2001::') || value.startsWith('2001:2:') ||
       value.startsWith('2001:db8:') || value === '2001:db8::' || value.startsWith('2002:');
   }
   const parts = address.split('.').map(Number);
