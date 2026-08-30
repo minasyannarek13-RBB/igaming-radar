@@ -35,11 +35,26 @@ export function classifyDomainLanding(input) {
   }
 
   if (observations.dns === 'fail') {
-    return {
-      ...result,
-      state: 'BROKEN',
-      scope: input?.geo === 'MULTI' ? 'global-observed' : 'target'
-    };
+    // A single resolver/probe failure is evidence of a failed observation, not
+    // evidence that the operator domain is globally or locally unreachable.
+    // BROKEN requires explicit corroboration or a multi-vantage observation.
+    const confirmations = Number(observations.dnsConfirmations ?? 0);
+    const corroborated = observations.dnsCorroborated === true || confirmations >= 2;
+
+    if (geo === 'MULTI') {
+      return { ...result, state: 'BROKEN', scope: 'global-observed' };
+    }
+
+    if (corroborated) {
+      return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
+    }
+
+    const independentHealthyControls = controls.filter((control) => healthyControl(control, geo));
+    if (observations.probeContext === 'automated' || independentHealthyControls.length > 0) {
+      return { ...result, state: 'NOT_OBSERVABLE', scope: 'dns-probe-ambiguous' };
+    }
+
+    return { ...result, state: 'NOT_OBSERVABLE', scope: 'dns-unconfirmed' };
   }
 
   if (observations.tls === 'fail') {
