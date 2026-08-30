@@ -26,6 +26,11 @@ export function validateEvidence(record) {
     }
   }
 
+  if (record.provenanceChannel !== undefined &&
+      (typeof record.provenanceChannel !== 'string' || record.provenanceChannel.trim() === '')) {
+    errors.push('invalid provenanceChannel');
+  }
+
   if (record.state && !Object.values(OBSERVATION_STATES).includes(record.state)) {
     errors.push('invalid observation state');
   }
@@ -79,14 +84,17 @@ export function validateDependencyEdge(edge, evidenceById = new Map()) {
   }
 
   if (edge.confidence === 'HIGH') {
-    const observedSources = new Set(
+    const observedChannels = new Set(
       evidenceRecords
-        .filter((record) => record.state === OBSERVATION_STATES.OBSERVED)
-        .map((record) => record.sourceId)
+        .filter((record) =>
+          record.state === OBSERVATION_STATES.OBSERVED &&
+          typeof record.provenanceChannel === 'string' &&
+          record.provenanceChannel.trim() !== '')
+        .map((record) => record.provenanceChannel.trim())
     );
 
-    if (observedSources.size < 2) {
-      errors.push('HIGH confidence requires at least two independent Observed evidence sources');
+    if (observedChannels.size < 2) {
+      errors.push('HIGH confidence requires at least two independent Observed provenance channels');
     }
   }
 
