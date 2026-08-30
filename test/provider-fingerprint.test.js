@@ -15,10 +15,11 @@ function fakeResponse(body) {
 const publicLookup = async () => [{ address: '93.184.216.34', family: 4 }];
 const now = () => new Date('2026-08-30T04:00:00Z');
 
-test("attributes an explicit playngonetwork.com runtime surface to Play'n GO at LOW confidence", async () => {
+test("attributes an explicit playngonetwork.com runtime surface to Play'n GO at LOW confidence with auditable corroboration", async () => {
+  const runtime = 'https://operator-cw.playngonetwork.com/casino/game/index.html';
   const result = await scanTarget('casino.example', {
     lookupImpl: publicLookup,
-    fetchImpl: async () => fakeResponse('<iframe src="https://operator-cw.playngonetwork.com/casino/game/index.html"></iframe>'),
+    fetchImpl: async () => fakeResponse(`<iframe src="${runtime}"></iframe>`),
     now
   });
 
@@ -32,8 +33,13 @@ test("attributes an explicit playngonetwork.com runtime surface to Play'n GO at 
     confidence: 'LOW',
     evidenceIds: ['ev-0001']
   });
-  assert.equal(result.evidence[0].locator, 'operator-cw.playngonetwork.com');
-  assert.equal(result.evidence[0].rawSignal, 'playngonetwork.com');
+  assert.equal(result.evidence[0].evidenceClass, 'runtime_resource_http');
+  assert.equal(result.evidence[0].locator, runtime);
+  assert.equal(result.evidence[0].requestedUrl, runtime);
+  assert.equal(result.evidence[0].finalUrl, runtime);
+  assert.equal(result.evidence[0].finalHostname, 'operator-cw.playngonetwork.com');
+  assert.equal(result.evidence[0].httpStatus, 200);
+  assert.equal(result.evidence[0].rawSignal, 'HTTP 200');
 });
 
 test('keeps plain Play n GO marketing links unattributed', async () => {
