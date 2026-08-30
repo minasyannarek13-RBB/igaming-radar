@@ -58,7 +58,27 @@ export function classifyDomainLanding(input) {
   }
 
   if (observations.tls === 'fail') {
-    return { ...result, state: 'BROKEN', scope: 'target' };
+    // As with DNS, one automated TLS handshake failure may be caused by a
+    // transient/vantage-specific path, SNI/probe behavior, or address choice.
+    // Preserve the failed observation but only promote it to BROKEN when the
+    // failure is explicitly corroborated or genuinely multi-vantage.
+    const confirmations = Number(observations.tlsConfirmations ?? 0);
+    const corroborated = observations.tlsCorroborated === true || confirmations >= 2;
+
+    if (geo === 'MULTI') {
+      return { ...result, state: 'BROKEN', scope: 'global-observed' };
+    }
+
+    if (corroborated) {
+      return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
+    }
+
+    const independentHealthyControls = controls.filter((control) => healthyControl(control, geo));
+    if (observations.probeContext === 'automated' || independentHealthyControls.length > 0) {
+      return { ...result, state: 'NOT_OBSERVABLE', scope: 'tls-probe-ambiguous' };
+    }
+
+    return { ...result, state: 'NOT_OBSERVABLE', scope: 'tls-unconfirmed' };
   }
 
   if (observations.redirect === 'loop') {
