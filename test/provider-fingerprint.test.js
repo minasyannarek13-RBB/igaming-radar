@@ -42,6 +42,23 @@ test("attributes an explicit playngonetwork.com runtime surface to Play'n GO at 
   assert.equal(result.evidence[0].rawSignal, 'HTTP 200');
 });
 
+test("keeps Play'n GO promotional image under a runtime-looking path unattributed", async () => {
+  const promotional = 'https://operator-cw.playngonetwork.com/casino/game/promotional-banner.png';
+  const result = await scanTarget('casino.example', {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => fakeResponse(`<img src="${promotional}">`),
+    now
+  });
+
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.deepEqual(result.dependencies, []);
+  assert.deepEqual(result.evidence, []);
+  assert.equal(result.observedSurfaces.length, 1);
+  assert.equal(result.observedSurfaces[0].hostname, 'operator-cw.playngonetwork.com');
+  assert.equal(result.observedSurfaces[0].attribution, 'UNATTRIBUTED');
+  assert.equal(result.observedSurfaces[0].sampleResources[0].tag, 'img');
+});
+
 test('keeps plain Play n GO marketing links unattributed', async () => {
   const result = await scanTarget('casino.example', {
     lookupImpl: publicLookup,
