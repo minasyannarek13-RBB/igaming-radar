@@ -296,10 +296,6 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
     return { target: target.hostname, state: OBSERVATION_STATES.NOT_OBSERVABLE, reason: 'target_fetch_failed', detail: error?.message || error?.name || 'fetch_error', evidence: [], dependencies: [], observedSurfaces: [] };
   }
 
-  const headerEvidence = [];
-  const cfRay = response.headers?.get?.('cf-ray');
-  if (cfRay) headerEvidence.push({ provider: 'Cloudflare', capability: 'CDN/Cloud', component: 'Edge/CDN', locator: finalUrl.href, evidenceClass: 'http_response_header', rawSignal: 'cf-ray' });
-
   let html = '';
   try { html = (await response.text()).slice(0, MAX_BODY_BYTES); } catch { html = ''; }
 
@@ -330,7 +326,7 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
   }
 
   const unique = new Map();
-  for (const signal of [...headerEvidence, ...hostEvidence]) unique.set(`${signal.provider}|${signal.capability}|${signal.component}|${signal.locator}|${signal.evidenceClass}`, signal);
+  for (const signal of hostEvidence) unique.set(`${signal.provider}|${signal.capability}|${signal.component}|${signal.locator}|${signal.evidenceClass}`, signal);
 
   let index = 1;
   for (const signal of unique.values()) {
