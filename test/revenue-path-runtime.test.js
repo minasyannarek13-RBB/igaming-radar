@@ -84,6 +84,60 @@ test('classification preserves evidence provenance', () => {
   assert.deepEqual(result.evidence.observations, fixture('healthy-control').observations);
 });
 
+test('single automated DNS failure with healthy controls is NOT_OBSERVABLE and preserves evidence', () => {
+  const observations = { dns: 'fail', probeContext: 'automated' };
+  const controls = [
+    { geo: 'NL', state: 'HEALTHY' },
+    { geo: 'GB', state: 'HEALTHY' }
+  ];
+  const result = classifyDomainLanding({
+    geo: 'DE',
+    evidenceClass: 'LIVE_OBSERVED',
+    observations,
+    controls
+  });
+
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'dns-probe-ambiguous');
+  assert.equal(result.attributable, false);
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+  assert.deepEqual(result.evidence.observations, observations);
+  assert.deepEqual(result.evidence.controls, controls);
+});
+
+test('corroborated repeated DNS failure may be BROKEN without invented cause', () => {
+  const result = classifyDomainLanding({
+    geo: 'DE',
+    evidenceClass: 'LIVE_OBSERVED',
+    observations: {
+      dns: 'fail',
+      probeContext: 'automated',
+      dnsConfirmations: 2
+    }
+  });
+
+  assert.equal(result.state, 'BROKEN');
+  assert.equal(result.scope, 'target-corroborated');
+  assert.equal(result.attributable, false);
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+});
+
+test('multi-vantage DNS failure remains BROKEN without claiming blocking cause', () => {
+  const result = classifyDomainLanding({
+    geo: 'MULTI',
+    evidenceClass: 'LIVE_OBSERVED',
+    observations: {
+      dns: 'fail',
+      probeContext: 'automated'
+    }
+  });
+
+  assert.equal(result.state, 'BROKEN');
+  assert.equal(result.scope, 'global-observed');
+  assert.equal(result.attributable, false);
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+});
+
 test('firstDetected remains stable across repeated failing probes', () => {
   const broken = classify('global-outage');
   let lifecycle = initialRevenuePathLifecycle();
