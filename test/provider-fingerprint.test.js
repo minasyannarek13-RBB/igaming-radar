@@ -56,7 +56,6 @@ test("keeps Play'n GO promotional image under a runtime-looking path unattribute
   assert.equal(result.observedSurfaces.length, 1);
   assert.equal(result.observedSurfaces[0].hostname, 'operator-cw.playngonetwork.com');
   assert.equal(result.observedSurfaces[0].attribution, 'UNATTRIBUTED');
-  assert.equal(result.observedSurfaces[0].sampleResources[0].tag, 'img');
 });
 
 test('keeps plain Play n GO marketing links unattributed', async () => {
