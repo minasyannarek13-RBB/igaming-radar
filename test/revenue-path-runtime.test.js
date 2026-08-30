@@ -138,6 +138,62 @@ test('multi-vantage DNS failure remains BROKEN without claiming blocking cause',
   assert.equal(result.cause, 'NOT_OBSERVABLE');
 });
 
+test('single automated TLS failure with healthy controls is NOT_OBSERVABLE and preserves evidence', () => {
+  const observations = { dns: 'ok', tls: 'fail', probeContext: 'automated' };
+  const controls = [
+    { geo: 'GE', state: 'HEALTHY' },
+    { geo: 'DE', state: 'HEALTHY' }
+  ];
+  const result = classifyDomainLanding({
+    geo: 'AM',
+    evidenceClass: 'LIVE_OBSERVED',
+    observations,
+    controls
+  });
+
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'tls-probe-ambiguous');
+  assert.equal(result.attributable, false);
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+  assert.deepEqual(result.evidence.observations, observations);
+  assert.deepEqual(result.evidence.controls, controls);
+});
+
+test('corroborated repeated TLS failure may be BROKEN without invented cause', () => {
+  const result = classifyDomainLanding({
+    geo: 'AM',
+    evidenceClass: 'LIVE_OBSERVED',
+    observations: {
+      dns: 'ok',
+      tls: 'fail',
+      probeContext: 'automated',
+      tlsConfirmations: 2
+    }
+  });
+
+  assert.equal(result.state, 'BROKEN');
+  assert.equal(result.scope, 'target-corroborated');
+  assert.equal(result.attributable, false);
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+});
+
+test('multi-vantage TLS failure may be BROKEN without claiming certificate/provider cause', () => {
+  const result = classifyDomainLanding({
+    geo: 'MULTI',
+    evidenceClass: 'LIVE_OBSERVED',
+    observations: {
+      dns: 'ok',
+      tls: 'fail',
+      probeContext: 'automated'
+    }
+  });
+
+  assert.equal(result.state, 'BROKEN');
+  assert.equal(result.scope, 'global-observed');
+  assert.equal(result.attributable, false);
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+});
+
 test('firstDetected remains stable across repeated failing probes', () => {
   const broken = classify('global-outage');
   let lifecycle = initialRevenuePathLifecycle();
