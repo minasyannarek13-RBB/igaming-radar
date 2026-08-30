@@ -123,10 +123,13 @@ test('redirected final operator host is not inventoried as an external surface',
   assert.deepEqual(result.observedSurfaces, [{ hostname: 'cdn.vendor.example', state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname', sampleResources: [{ path: '/style.css', attribute: 'href' }] }]);
 });
 
-test('creates an Observed CloudFront edge only from an explicit public hostname with auditable corroboration', async () => {
+test('keeps generic CloudFront runtime as an unattributed observed surface', async () => {
   const runtime = 'https://d111111abcdef8.cloudfront.net/app.js';
   const result = await scan('casino.example', { fetchImpl: async () => fakeResponse({ body: `<script src="${runtime}"></script>` }), now: () => new Date('2026-08-30T00:00:00Z') });
-  assert.equal(result.state, OBSERVATION_STATES.OBSERVED); assert.equal(result.dependencies.length, 1); assert.equal(result.dependencies[0].provider, 'Amazon CloudFront'); assert.equal(result.dependencies[0].confidence, 'LOW'); assert.equal(result.evidence[0].state, OBSERVATION_STATES.OBSERVED); assert.equal(result.evidence[0].evidenceClass, 'runtime_resource_http'); assert.equal(result.evidence[0].locator, runtime); assert.equal(result.evidence[0].finalHostname, 'd111111abcdef8.cloudfront.net'); assert.equal(result.evidence[0].httpStatus, 200); assert.ok(result.dependencies[0].evidenceIds.includes(result.evidence[0].id));
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.deepEqual(result.dependencies, []);
+  assert.deepEqual(result.evidence, []);
+  assert.deepEqual(result.observedSurfaces, [{ hostname: 'd111111abcdef8.cloudfront.net', state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname', sampleResources: [{ path: '/app.js', attribute: 'src' }] }]);
 });
 
 test('Cloudflare edge is observed only when cf-ray is present', async () => {
