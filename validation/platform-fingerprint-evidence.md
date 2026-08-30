@@ -22,9 +22,11 @@ A LOW-confidence `Sportsbook/Platform -> Entain -> Shared application runtime` e
 4. hostname suffix validation still passes `itsfogo.com` ownership boundary checks;
 5. a separate SSRF-guarded public fetch of the exact resource succeeds with a 2xx response and the final redirect hostname remains inside the same fingerprint suffix.
 
-Everything else under `itsfogo.com` remains `Observed / UNATTRIBUTED` unless another independently supported fingerprint exists. A runtime-looking URL in HTML is no longer sufficient on its own to create a dependency edge.
+Successful corroboration is now retained in the dependency evidence itself. The evidence record exposes the exact requested resource URL, final URL, final hostname, successful HTTP status, `runtime_resource_http` evidence class and `live: true`; the dependency edge references that evidence ID directly. The scanner no longer discards the HTTP observation that authorized the edge.
 
-The same positive-resource corroboration rule now applies to all HTML-derived provider/platform/CDN fingerprints. Cloudflare `cf-ray` remains direct response-header evidence and does not use the HTML resource probe path.
+Everything else under `itsfogo.com` remains `Observed / UNATTRIBUTED` unless another independently supported fingerprint exists. A runtime-looking URL in HTML is not sufficient on its own to create a dependency edge.
+
+The same positive-resource corroboration and provenance rule applies to all HTML-derived provider/platform/CDN fingerprints. Cloudflare `cf-ray` remains direct response-header evidence and does not use the HTML resource probe path.
 
 ## Negative guards
 
@@ -56,6 +58,12 @@ Live-resource corroboration hardening:
 - implementation commit: `5af28d101cb07f794a51972af8839c2b240fa830`
 - unavailable-resource tests: `dc2f762d8be98cebd7e56620ce700daaa1601755`
 - GitHub Actions CI run `33303418232`: SUCCESS
-- Vercel production deployment `dpl_tJPDXWVEKzTWssx5NUggtDV3eAWp`: READY on `dc2f762d8be98cebd7e56620ce700daaa1601755`
 
-This closes the BUILD-side Red Team case where a fabricated or dead exact-pattern runtime URL could become a Sportsbook/Platform dependency. It does not declare the scanner gate or Free Scan release gate passed; Red Team / Release Owner must independently falsify the hardened behavior and rerun release evidence as required.
+Auditable corroboration provenance hardening:
+
+- implementation commit: `7656e464f2fc7a34e4b85e9db488225ea9dad497`
+- contract expectation follow-ups: `4989471bbb0ee99c413596c26a6aea87166132c5`, `9e8714ae77772765a18afa36c5e1d89d7e340242`, `d8530d7bda64649c89cfbd8c345108c8ee562c0b`
+- GitHub Actions CI run `33305905946`: Node 20 SUCCESS, Node 22 SUCCESS
+- Vercel production deployment `dpl_2Jx5asqcrM6S5QmamDZNUpThf8pA`: READY on `d8530d7bda64649c89cfbd8c345108c8ee562c0b`
+
+This closes the BUILD-side Red Team provenance case: a dependency authorized by live resource corroboration now carries the concrete HTTP observation used to authorize it. It does not declare the scanner gate or Free Scan release gate passed; Red Team / Release Owner must independently falsify the hardened behavior and rerun release evidence as required.
