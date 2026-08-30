@@ -56,5 +56,12 @@ export const domainLandingFixtures = [
     geo: 'DE',
     observations: { dns: 'ok', tls: 'ok', http: 200, redirect: 'ok', page: 'ok', criticalAssets: 'ok', cta: 'ok', unrelatedThirdPartyAsset: 'failed' },
     expected: { state: 'HEALTHY', scope: 'none', attributable: false, dependencyEdges: 0 }
+  },
+  {
+    id: 'waf-bot-ambiguous',
+    target: 'https://waf-ambiguous.example/landing',
+    geo: 'DE',
+    observations: { dns: 'ok', tls: 'ok', http: 403, redirect: 'ok', page: 'challenge', criticalAssets: 'not_observed', cta: 'not_observed', probeContext: 'automated' },
+    expected: { state: 'NOT_OBSERVABLE', scope: 'probe-ambiguous', attributable: false, cause: 'NOT_OBSERVABLE' }
   }
 ];
