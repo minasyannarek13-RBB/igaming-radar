@@ -37,10 +37,37 @@ test('IPv4-mapped IPv6 is normalized through the IPv4 public-range guard', () =>
   assert.equal(isPrivateIp('::ffff:0808:0808'), false);
 });
 
+test('IPv6 transition and special ranges are fail-closed for SSRF', () => {
+  for (const ip of [
+    '::7f00:1',
+    '0:0:0:0:0:0:7f00:1',
+    '64:ff9b::7f00:1',
+    '0064:ff9b::7f00:1',
+    '64:ff9b:1::7f00:1',
+    '100::1',
+    '2001:0::1',
+    '2001:2::1',
+    '2001:db8::1',
+    '2002:7f00:1::'
+  ]) assert.equal(isPrivateIp(ip), true, ip);
+  assert.equal(isPrivateIp('2606:4700:4700::1111'), false);
+});
+
 test('DNS resolution to private address is blocked before fetch', async () => {
   let fetched = false;
   const result = await scanTarget('casino.example', {
     lookupImpl: async () => [{ address: '169.254.169.254', family: 4 }],
+    fetchImpl: async () => { fetched = true; return fakeResponse(); }
+  });
+  assert.equal(fetched, false);
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.match(result.detail, /non-public/);
+});
+
+test('DNS resolution to IPv6 transition range is blocked before fetch', async () => {
+  let fetched = false;
+  const result = await scanTarget('casino.example', {
+    lookupImpl: async () => [{ address: '64:ff9b::7f00:1', family: 6 }],
     fetchImpl: async () => { fetched = true; return fakeResponse(); }
   });
   assert.equal(fetched, false);
