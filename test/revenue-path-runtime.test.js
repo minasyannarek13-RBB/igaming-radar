@@ -125,3 +125,50 @@ test('NOT_OBSERVABLE does not count as recovery proof', () => {
   assert.equal(lifecycle.healthyConfirmations, 0);
   assert.equal(lifecycle.recoveredAt, null);
 });
+
+test('delayed BROKEN cannot move lifecycle event-time or exposure backward', () => {
+  const broken = classify('global-outage');
+  let lifecycle = initialRevenuePathLifecycle();
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-30T10:00:00.000Z');
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-30T10:05:00.000Z');
+  const beforeDelayed = lifecycle;
+
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-30T10:02:00.000Z');
+
+  assert.deepEqual(lifecycle, beforeDelayed);
+  assert.equal(lifecycle.lastObservedAt, '2026-08-30T10:05:00.000Z');
+  assert.equal(lifecycle.firstDetected, '2026-08-30T10:00:00.000Z');
+  assert.equal(lifecycle.exposureDurationMs, 5 * 60 * 1000);
+});
+
+test('delayed HEALTHY cannot enter recovery hysteresis', () => {
+  const broken = classify('global-outage');
+  const healthy = classify('healthy-control');
+  let lifecycle = initialRevenuePathLifecycle();
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-30T10:00:00.000Z');
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-30T10:05:00.000Z');
+
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, healthy, '2026-08-30T10:02:00.000Z');
+
+  assert.equal(lifecycle.incidentOpen, true);
+  assert.equal(lifecycle.state, 'BROKEN');
+  assert.equal(lifecycle.healthyConfirmations, 0);
+  assert.equal(lifecycle.recoveryCandidateAt, null);
+  assert.equal(lifecycle.lastObservedAt, '2026-08-30T10:05:00.000Z');
+});
+
+test('equal timestamp observation is idempotent first-write-wins', () => {
+  const broken = classify('global-outage');
+  const healthy = classify('healthy-control');
+  let lifecycle = initialRevenuePathLifecycle();
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-30T10:00:00.000Z');
+  const firstWrite = lifecycle;
+
+  lifecycle = advanceRevenuePathLifecycle(lifecycle, healthy, '2026-08-30T10:00:00.000Z');
+
+  assert.deepEqual(lifecycle, firstWrite);
+  assert.equal(lifecycle.incidentOpen, true);
+  assert.equal(lifecycle.state, 'BROKEN');
+  assert.equal(lifecycle.healthyConfirmations, 0);
+  assert.equal(lifecycle.recoveredAt, null);
+});
