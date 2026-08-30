@@ -16,6 +16,16 @@ const HOST_FINGERPRINTS = Object.freeze([
   { suffix: 'akamaihd.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge', resourceMatch: (resource) => resource.attribute === 'src' },
   { suffix: 'fastly.net', provider: 'Fastly', capability: 'CDN/Cloud', component: 'CDN edge', resourceMatch: (resource) => resource.attribute === 'src' },
   {
+    suffix: 'itsfogo.com',
+    provider: 'Entain',
+    capability: 'Sportsbook/Platform',
+    component: 'Shared application runtime',
+    resourceMatch: (resource) =>
+      resource.attribute === 'src' &&
+      /^(?:scmedia|scmedia-us)\.itsfogo\.com$/i.test(resource.hostname) &&
+      /^\/\$-\$\/[0-9a-f]{32}\.js(?:\?|$)/i.test(resource.path)
+  },
+  {
     suffix: 'playngonetwork.com',
     provider: "Play'n GO",
     capability: 'Game Provider/RGS',
