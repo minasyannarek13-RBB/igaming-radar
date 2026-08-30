@@ -26,7 +26,10 @@ const HOST_FINGERPRINTS = Object.freeze([
     provider: "Play'n GO",
     capability: 'Game Provider/RGS',
     component: 'Game delivery network',
-    resourceMatch: (resource) => resource.attribute === 'src' && /(^|\/)casino\/game(?:\/|$)/i.test(resource.path)
+    resourceMatch: (resource) =>
+      resource.tag === 'iframe' &&
+      resource.attribute === 'src' &&
+      /(^|\/)casino\/game(?:\/|$)/i.test(resource.path)
   }
 ]);
 
@@ -235,13 +238,23 @@ function extractExternalResources(html, baseUrl) {
     try {
       const url = new URL(match[2], baseUrl);
       if (!['http:', 'https:'].includes(url.protocol)) continue;
+      const tagStart = html.lastIndexOf('<', match.index);
+      let tag = null;
+      if (tagStart >= 0) {
+        const tagPrefix = html.slice(tagStart, match.index);
+        if (!tagPrefix.includes('>')) {
+          const tagMatch = /^<\s*([a-zA-Z][\w:-]*)\b/.exec(tagPrefix);
+          tag = tagMatch?.[1]?.toLowerCase() || null;
+        }
+      }
       const normalized = {
         url: url.href,
         hostname: url.hostname.toLowerCase().replace(/\.$/, ''),
         path: `${url.pathname}${url.search}`,
-        attribute: match[1].toLowerCase()
+        attribute: match[1].toLowerCase(),
+        tag
       };
-      const key = `${normalized.attribute}|${normalized.url}`;
+      const key = `${normalized.tag || 'unknown'}|${normalized.attribute}|${normalized.url}`;
       if (!seen.has(key)) {
         seen.add(key);
         resources.push(normalized);
@@ -275,7 +288,7 @@ function inventoryExternalSurfaces(resources, operatorHostnames) {
       });
     }
     const surface = surfaceMap.get(resource.hostname);
-    if (surface.sampleResources.length < 3) surface.sampleResources.push({ path: resource.path, attribute: resource.attribute });
+    if (surface.sampleResources.length < 3) surface.sampleResources.push({ path: resource.path, attribute: resource.attribute, tag: resource.tag });
   }
   return [...surfaceMap.values()];
 }
