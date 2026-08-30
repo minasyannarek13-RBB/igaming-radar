@@ -141,6 +141,11 @@ function requestPinnedAddress(url, address) {
           }
           if (!incoming.complete) incoming.destroy();
           return Buffer.concat(chunks).toString('utf8');
+        },
+        async discard() {
+          if (consumed) return;
+          consumed = true;
+          incoming.resume();
         }
       });
     });
@@ -188,6 +193,21 @@ function hostnameMatches(hostname, suffix) {
 function resourceMatchesFingerprint(resource, fingerprint) {
   if (!hostnameMatches(resource.hostname, fingerprint.suffix)) return false;
   return typeof fingerprint.resourceMatch !== 'function' || fingerprint.resourceMatch(resource);
+}
+
+async function corroborateFingerprintResource(resource, fingerprint, { fetchImpl, lookupImpl }) {
+  try {
+    const { response, finalUrl } = await fetchPublicTarget(normalizeTarget(resource.url), { fetchImpl, lookupImpl });
+    const finalHost = finalUrl.hostname.toLowerCase().replace(/\.$/, '');
+    const corroborated = response.ok === true && hostnameMatches(finalHost, fingerprint.suffix);
+    if (typeof response.discard === 'function') await response.discard();
+    else if (response.body && typeof response.body.cancel === 'function') {
+      try { await response.body.cancel(); } catch { /* Best-effort cleanup only. */ }
+    }
+    return corroborated;
+  } catch {
+    return false;
+  }
 }
 
 function extractExternalResources(html, baseUrl) {
@@ -270,9 +290,19 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
   const resources = extractExternalResources(html, finalUrl);
   const observedSurfaces = inventoryExternalSurfaces(resources, [target.hostname, finalUrl.hostname]);
   const hostEvidence = [];
+  const corroborationCache = new Map();
   for (const resource of resources) {
     for (const fingerprint of HOST_FINGERPRINTS) {
-      if (resourceMatchesFingerprint(resource, fingerprint)) hostEvidence.push({ ...fingerprint, resourceMatch: undefined, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
+      if (!resourceMatchesFingerprint(resource, fingerprint)) continue;
+      const cacheKey = `${fingerprint.suffix}|${resource.url}`;
+      let corroborated = corroborationCache.get(cacheKey);
+      if (corroborated === undefined) {
+        corroborated = await corroborateFingerprintResource(resource, fingerprint, { fetchImpl, lookupImpl });
+        corroborationCache.set(cacheKey, corroborated);
+      }
+      if (corroborated) {
+        hostEvidence.push({ ...fingerprint, resourceMatch: undefined, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
+      }
     }
   }
 
@@ -293,4 +323,4 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
   return { target: target.hostname, state: OBSERVATION_STATES.OBSERVED, scannedUrl: finalUrl.href, evidence, dependencies: edges, observedSurfaces };
 }
 
-export { assertPublicResolution, extractExternalResources, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, mappedIpv4FromIpv6, normalizeTarget, resourceMatchesFingerprint, HOST_FINGERPRINTS };
+export { assertPublicResolution, corroborateFingerprintResource, extractExternalResources, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, mappedIpv4FromIpv6, normalizeTarget, resourceMatchesFingerprint, HOST_FINGERPRINTS };
