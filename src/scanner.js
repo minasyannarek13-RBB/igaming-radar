@@ -15,7 +15,13 @@ const HOST_FINGERPRINTS = Object.freeze([
   { suffix: 'akamaized.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge' },
   { suffix: 'akamaihd.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge' },
   { suffix: 'fastly.net', provider: 'Fastly', capability: 'CDN/Cloud', component: 'CDN edge' },
-  { suffix: 'playngonetwork.com', provider: "Play'n GO", capability: 'Game Provider/RGS', component: 'Game delivery network' }
+  {
+    suffix: 'playngonetwork.com',
+    provider: "Play'n GO",
+    capability: 'Game Provider/RGS',
+    component: 'Game delivery network',
+    resourceMatch: (resource) => resource.attribute === 'src' && /(^|\/)casino\/game(?:\/|$)/i.test(resource.path)
+  }
 ]);
 
 function normalizeTarget(input) {
@@ -169,6 +175,11 @@ function hostnameMatches(hostname, suffix) {
   return host === normalizedSuffix || host.endsWith(`.${normalizedSuffix}`);
 }
 
+function resourceMatchesFingerprint(resource, fingerprint) {
+  if (!hostnameMatches(resource.hostname, fingerprint.suffix)) return false;
+  return typeof fingerprint.resourceMatch !== 'function' || fingerprint.resourceMatch(resource);
+}
+
 function extractExternalResources(html, baseUrl) {
   const resources = [];
   const seen = new Set();
@@ -248,7 +259,7 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
   const hostEvidence = [];
   for (const resource of resources) {
     for (const fingerprint of HOST_FINGERPRINTS) {
-      if (hostnameMatches(resource.hostname, fingerprint.suffix)) hostEvidence.push({ ...fingerprint, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
+      if (resourceMatchesFingerprint(resource, fingerprint)) hostEvidence.push({ ...fingerprint, resourceMatch: undefined, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
     }
   }
 
@@ -269,4 +280,4 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
   return { target: target.hostname, state: OBSERVATION_STATES.OBSERVED, scannedUrl: finalUrl.href, evidence, dependencies: edges, observedSurfaces };
 }
 
-export { assertPublicResolution, extractExternalResources, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, mappedIpv4FromIpv6, normalizeTarget, HOST_FINGERPRINTS };
+export { assertPublicResolution, extractExternalResources, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, mappedIpv4FromIpv6, normalizeTarget, resourceMatchesFingerprint, HOST_FINGERPRINTS };
