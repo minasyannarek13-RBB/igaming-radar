@@ -105,6 +105,17 @@ export function advanceRevenuePathLifecycle(previous, classified, observedAt, op
 
   const recoveryConfirmations = Math.max(1, options.recoveryConfirmations ?? 2);
   const current = previous ?? initialRevenuePathLifecycle();
+  const lastObservedMs = current.lastObservedAt
+    ? new Date(current.lastObservedAt).getTime()
+    : null;
+
+  // Persisted lifecycle is an event-time state machine. Delayed observations
+  // must not move state backward, and equal timestamps are first-write-wins so
+  // retries/duplicates cannot alter recovery hysteresis or exposure duration.
+  if (Number.isFinite(lastObservedMs) && timestamp <= lastObservedMs) {
+    return current;
+  }
+
   const next = { ...current, lastObservedAt: new Date(timestamp).toISOString() };
   const unhealthy = classified.state === 'BROKEN' || classified.state === 'DEGRADED';
 
