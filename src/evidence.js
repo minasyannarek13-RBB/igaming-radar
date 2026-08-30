@@ -4,6 +4,15 @@ export const OBSERVATION_STATES = Object.freeze({
   NOT_OBSERVABLE: 'Not observable externally'
 });
 
+export const PROVENANCE_FAMILIES = Object.freeze({
+  RUNTIME_RESOURCE_HTTP: 'runtime_resource_http',
+  AUTHORITATIVE_DNS: 'authoritative_dns',
+  FIRST_PARTY_METADATA: 'first_party_metadata',
+  TLS_CERTIFICATE: 'tls_certificate'
+});
+
+const ALLOWED_PROVENANCE_FAMILIES = new Set(Object.values(PROVENANCE_FAMILIES));
+
 const REQUIRED_EVIDENCE_FIELDS = Object.freeze([
   'sourceId',
   'observedAt',
@@ -11,6 +20,15 @@ const REQUIRED_EVIDENCE_FIELDS = Object.freeze([
   'evidenceClass',
   'state'
 ]);
+
+export function provenanceFamily(channel) {
+  if (typeof channel !== 'string') return null;
+  const trimmed = channel.trim();
+  if (trimmed === '') return null;
+  const separator = trimmed.indexOf(':');
+  const family = (separator === -1 ? trimmed : trimmed.slice(0, separator)).trim();
+  return ALLOWED_PROVENANCE_FAMILIES.has(family) ? family : null;
+}
 
 export function validateEvidence(record) {
   const errors = [];
@@ -26,9 +44,8 @@ export function validateEvidence(record) {
     }
   }
 
-  if (record.provenanceChannel !== undefined &&
-      (typeof record.provenanceChannel !== 'string' || record.provenanceChannel.trim() === '')) {
-    errors.push('invalid provenanceChannel');
+  if (record.provenanceChannel !== undefined && !provenanceFamily(record.provenanceChannel)) {
+    errors.push('invalid provenanceChannel family');
   }
 
   if (record.state && !Object.values(OBSERVATION_STATES).includes(record.state)) {
@@ -84,17 +101,15 @@ export function validateDependencyEdge(edge, evidenceById = new Map()) {
   }
 
   if (edge.confidence === 'HIGH') {
-    const observedChannels = new Set(
+    const observedFamilies = new Set(
       evidenceRecords
-        .filter((record) =>
-          record.state === OBSERVATION_STATES.OBSERVED &&
-          typeof record.provenanceChannel === 'string' &&
-          record.provenanceChannel.trim() !== '')
-        .map((record) => record.provenanceChannel.trim())
+        .filter((record) => record.state === OBSERVATION_STATES.OBSERVED)
+        .map((record) => provenanceFamily(record.provenanceChannel))
+        .filter(Boolean)
     );
 
-    if (observedChannels.size < 2) {
-      errors.push('HIGH confidence requires at least two independent Observed provenance channels');
+    if (observedFamilies.size < 2) {
+      errors.push('HIGH confidence requires at least two independent trusted Observed provenance families');
     }
   }
 
