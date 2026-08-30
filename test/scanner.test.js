@@ -42,6 +42,23 @@ test('returns Not observable externally instead of inventing a dependency', asyn
   assert.equal(result.reason, 'no_supported_dependency_signal');
 });
 
+test('inventories external surfaces without turning them into dependency attribution', async () => {
+  const result = await scanTarget('casino.example', {
+    fetchImpl: async () => fakeResponse({ body: '<script src="https://unknown-vendor.example/app.js"></script><link href="https://casino.example/style.css">' }),
+    now: () => new Date('2026-08-30T00:00:00Z')
+  });
+
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.deepEqual(result.dependencies, []);
+  assert.deepEqual(result.evidence, []);
+  assert.deepEqual(result.observedSurfaces, [{
+    hostname: 'unknown-vendor.example',
+    state: OBSERVATION_STATES.OBSERVED,
+    attribution: 'UNATTRIBUTED',
+    evidenceClass: 'html_external_hostname'
+  }]);
+});
+
 test('creates an Observed CloudFront edge only from an explicit public hostname', async () => {
   const result = await scanTarget('casino.example', {
     fetchImpl: async () => fakeResponse({ body: '<script src="https://d111111abcdef8.cloudfront.net/app.js"></script>' }),
@@ -76,4 +93,5 @@ test('fetch failure is explicit Not observable externally', async () => {
   assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
   assert.equal(result.reason, 'target_fetch_failed');
   assert.deepEqual(result.dependencies, []);
+  assert.deepEqual(result.observedSurfaces, []);
 });
