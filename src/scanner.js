@@ -14,7 +14,8 @@ const HOST_FINGERPRINTS = Object.freeze([
   { suffix: 'cloudfront.net', provider: 'Amazon CloudFront', capability: 'CDN/Cloud', component: 'CDN edge' },
   { suffix: 'akamaized.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge' },
   { suffix: 'akamaihd.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge' },
-  { suffix: 'fastly.net', provider: 'Fastly', capability: 'CDN/Cloud', component: 'CDN edge' }
+  { suffix: 'fastly.net', provider: 'Fastly', capability: 'CDN/Cloud', component: 'CDN edge' },
+  { suffix: 'playngonetwork.com', provider: "Play'n GO", capability: 'Game Provider/RGS', component: 'Game delivery network' }
 ]);
 
 function normalizeTarget(input) {
