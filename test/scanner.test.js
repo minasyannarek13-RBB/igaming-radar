@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scanTarget, hostnameMatches, normalizeTarget, isPrivateIp } from '../src/scanner.js';
+import { scanTarget, hostnameMatches, normalizeTarget, isPrivateIp, extractExternalResources } from '../src/scanner.js';
 import { OBSERVATION_STATES } from '../src/evidence.js';
 
 function fakeResponse({ url = 'https://casino.example/', status = 200, headers = {}, body = '' } = {}) {
@@ -54,15 +54,23 @@ test('public redirect to private-resolving hostname is blocked before second fet
   assert.match(result.detail, /non-public/);
 });
 
+test('extracts resource path and attribute without attributing a provider', () => {
+  const resources = extractExternalResources('<script src="https://vendor.example/runtime/game.js?v=7"></script><link href="/style.css">', new URL('https://casino.example/'));
+  assert.deepEqual(resources, [
+    { url: 'https://vendor.example/runtime/game.js?v=7', hostname: 'vendor.example', path: '/runtime/game.js?v=7', attribute: 'src' },
+    { url: 'https://casino.example/style.css', hostname: 'casino.example', path: '/style.css', attribute: 'href' }
+  ]);
+});
+
 test('returns Not observable externally instead of inventing a dependency', async () => {
   const result = await scan('casino.example', { fetchImpl: async () => fakeResponse({ body: '<html><script src="/app.js"></script></html>' }), now: () => new Date('2026-08-30T00:00:00Z') });
   assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE); assert.deepEqual(result.dependencies, []); assert.deepEqual(result.evidence, []); assert.equal(result.reason, 'no_supported_dependency_signal');
 });
 
-test('inventories external surfaces without turning them into dependency attribution', async () => {
-  const result = await scan('casino.example', { fetchImpl: async () => fakeResponse({ body: '<script src="https://unknown-vendor.example/app.js"></script><link href="https://casino.example/style.css">' }), now: () => new Date('2026-08-30T00:00:00Z') });
+test('inventories external surfaces with resource context without turning them into dependency attribution', async () => {
+  const result = await scan('casino.example', { fetchImpl: async () => fakeResponse({ body: '<script src="https://unknown-vendor.example/runtime/app.js?v=2"></script><link href="https://casino.example/style.css">' }), now: () => new Date('2026-08-30T00:00:00Z') });
   assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE); assert.deepEqual(result.dependencies, []); assert.deepEqual(result.evidence, []);
-  assert.deepEqual(result.observedSurfaces, [{ hostname: 'unknown-vendor.example', state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname' }]);
+  assert.deepEqual(result.observedSurfaces, [{ hostname: 'unknown-vendor.example', state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname', sampleResources: [{ path: '/runtime/app.js?v=2', attribute: 'src' }] }]);
 });
 
 test('creates an Observed CloudFront edge only from an explicit public hostname', async () => {
