@@ -86,7 +86,27 @@ export function classifyDomainLanding(input) {
   }
 
   if (observations.http === 200 && observations.page === 'error-template') {
-    return { ...result, state: 'BROKEN', scope: 'landing' };
+    // A soft-200 error/interstitial seen by one automated vantage can be caused
+    // by probe-specific edge/WAF/personalization behavior. Preserve the exact
+    // observation, but require explicit repeated/corroborated or genuinely
+    // multi-vantage evidence before opening a proven landing incident.
+    const confirmations = Number(observations.pageConfirmations ?? 0);
+    const corroborated = observations.pageCorroborated === true || confirmations >= 2;
+
+    if (geo === 'MULTI') {
+      return { ...result, state: 'BROKEN', scope: 'landing-global-observed' };
+    }
+
+    if (corroborated) {
+      return { ...result, state: 'BROKEN', scope: 'landing-corroborated' };
+    }
+
+    const independentHealthyControls = controls.filter((control) => healthyControl(control, geo));
+    if (observations.probeContext === 'automated' || independentHealthyControls.length > 0) {
+      return { ...result, state: 'NOT_OBSERVABLE', scope: 'soft-200-probe-ambiguous' };
+    }
+
+    return { ...result, state: 'NOT_OBSERVABLE', scope: 'soft-200-unconfirmed' };
   }
 
   if ([403, 451].includes(observations.http) && observations.page === 'unavailable') {
