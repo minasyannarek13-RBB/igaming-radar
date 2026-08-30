@@ -106,7 +106,9 @@ export function classifyDomainLanding(input) {
       return { ...result, state: 'NOT_OBSERVABLE', scope: 'soft-200-probe-ambiguous' };
     }
 
-    return { ...result, state: 'NOT_OBSERVABLE', scope: 'soft-200-unconfirmed' };
+    // Preserve the pre-existing explicit/manual/synthetic contract. The guard
+    // above is specifically for automated or contradicted single-vantage data.
+    return { ...result, state: 'BROKEN', scope: 'landing' };
   }
 
   if ([403, 451].includes(observations.http) && observations.page === 'unavailable') {
