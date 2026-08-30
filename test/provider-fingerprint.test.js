@@ -36,10 +36,37 @@ test("attributes an explicit playngonetwork.com runtime surface to Play'n GO at 
   assert.equal(result.evidence[0].rawSignal, 'playngonetwork.com');
 });
 
+test('keeps plain Play n GO marketing links unattributed', async () => {
+  const result = await scanTarget('casino.example', {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => fakeResponse('<a href="https://playngonetwork.com/">Play n GO</a>'),
+    now
+  });
+
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.deepEqual(result.dependencies, []);
+  assert.deepEqual(result.evidence, []);
+  assert.equal(result.observedSurfaces.length, 1);
+  assert.equal(result.observedSurfaces[0].hostname, 'playngonetwork.com');
+  assert.equal(result.observedSurfaces[0].attribution, 'UNATTRIBUTED');
+});
+
+test('does not attribute Play n GO hostname without runtime game path corroboration', async () => {
+  const result = await scanTarget('casino.example', {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => fakeResponse('<img src="https://operator-cw.playngonetwork.com/assets/logo.svg">'),
+    now
+  });
+
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.deepEqual(result.dependencies, []);
+  assert.equal(result.observedSurfaces[0].attribution, 'UNATTRIBUTED');
+});
+
 test('does not attribute suffix-spoofed Play n GO hostnames', async () => {
   const result = await scanTarget('casino.example', {
     lookupImpl: publicLookup,
-    fetchImpl: async () => fakeResponse('<iframe src="https://playngonetwork.com.evil.example/game"></iframe>'),
+    fetchImpl: async () => fakeResponse('<iframe src="https://playngonetwork.com.evil.example/casino/game/index.html"></iframe>'),
     now
   });
 
