@@ -30,10 +30,11 @@ test('does not create a CDN dependency from a plain marketing hyperlink', async 
   assert.equal(result.observedSurfaces[0].attribution, 'UNATTRIBUTED');
 });
 
-test('keeps explicit CDN runtime resources attributable at LOW confidence', async () => {
+test('keeps explicit CDN runtime resources attributable at LOW confidence with auditable corroboration', async () => {
+  const runtime = 'https://d111111abcdef8.cloudfront.net/runtime/app.js';
   const result = await scanTarget('casino.example', {
     lookupImpl: publicLookup,
-    fetchImpl: async () => fakeResponse('<script src="https://d111111abcdef8.cloudfront.net/runtime/app.js"></script>'),
+    fetchImpl: async () => fakeResponse(`<script src="${runtime}"></script>`),
     now
   });
 
@@ -42,5 +43,10 @@ test('keeps explicit CDN runtime resources attributable at LOW confidence', asyn
   assert.equal(result.dependencies[0].provider, 'Amazon CloudFront');
   assert.equal(result.dependencies[0].capability, 'CDN/Cloud');
   assert.equal(result.dependencies[0].confidence, 'LOW');
-  assert.equal(result.evidence[0].locator, 'd111111abcdef8.cloudfront.net');
+  assert.equal(result.evidence[0].evidenceClass, 'runtime_resource_http');
+  assert.equal(result.evidence[0].locator, runtime);
+  assert.equal(result.evidence[0].requestedUrl, runtime);
+  assert.equal(result.evidence[0].finalUrl, runtime);
+  assert.equal(result.evidence[0].finalHostname, 'd111111abcdef8.cloudfront.net');
+  assert.equal(result.evidence[0].httpStatus, 200);
 });
