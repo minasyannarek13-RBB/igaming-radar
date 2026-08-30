@@ -11,10 +11,10 @@ const MAX_REDIRECTS = 5;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 const HOST_FINGERPRINTS = Object.freeze([
-  { suffix: 'cloudfront.net', provider: 'Amazon CloudFront', capability: 'CDN/Cloud', component: 'CDN edge' },
-  { suffix: 'akamaized.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge' },
-  { suffix: 'akamaihd.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge' },
-  { suffix: 'fastly.net', provider: 'Fastly', capability: 'CDN/Cloud', component: 'CDN edge' },
+  { suffix: 'cloudfront.net', provider: 'Amazon CloudFront', capability: 'CDN/Cloud', component: 'CDN edge', resourceMatch: (resource) => resource.attribute === 'src' },
+  { suffix: 'akamaized.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge', resourceMatch: (resource) => resource.attribute === 'src' },
+  { suffix: 'akamaihd.net', provider: 'Akamai', capability: 'CDN/Cloud', component: 'CDN edge', resourceMatch: (resource) => resource.attribute === 'src' },
+  { suffix: 'fastly.net', provider: 'Fastly', capability: 'CDN/Cloud', component: 'CDN edge', resourceMatch: (resource) => resource.attribute === 'src' },
   {
     suffix: 'playngonetwork.com',
     provider: "Play'n GO",
