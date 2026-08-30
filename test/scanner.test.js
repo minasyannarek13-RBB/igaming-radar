@@ -132,9 +132,12 @@ test('keeps generic CloudFront runtime as an unattributed observed surface', asy
   assert.deepEqual(result.observedSurfaces, [{ hostname: 'd111111abcdef8.cloudfront.net', state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname', sampleResources: [{ path: '/app.js', attribute: 'src' }] }]);
 });
 
-test('Cloudflare edge is observed only when cf-ray is present', async () => {
+test('cf-ray alone never creates a Cloudflare dependency edge', async () => {
   const result = await scan('casino.example', { fetchImpl: async () => fakeResponse({ headers: { 'cf-ray': 'abc123-EVN' }, body: '<html></html>' }), now: () => new Date('2026-08-30T00:00:00Z') });
-  assert.equal(result.dependencies.length, 1); assert.equal(result.dependencies[0].provider, 'Cloudflare'); assert.equal(result.evidence[0].rawSignal, 'cf-ray');
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.equal(result.reason, 'no_supported_dependency_signal');
+  assert.deepEqual(result.dependencies, []);
+  assert.deepEqual(result.evidence, []);
 });
 
 test('fetch failure is explicit Not observable externally', async () => {
