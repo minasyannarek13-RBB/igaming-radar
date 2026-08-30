@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "evidenceClass": "SYNTHETIC_TEST",
+  "cases": [
+    {"id":"healthy-control","assetType":"LANDING","geos":{"DE":{"dns":"ok","tls":"ok","http":200,"page":"expected","criticalAssets":"ok","cta":"ok"},"NL":{"dns":"ok","tls":"ok","http":200,"page":"expected","criticalAssets":"ok","cta":"ok"}},"expected":{"state":"HEALTHY","scope":"none","attribution":"NOT_OBSERVABLE","alert":false}},
+    {"id":"global-outage","assetType":"DOMAIN","geos":{"DE":{"dns":"ok","tls":"ok","http":503},"NL":{"dns":"ok","tls":"ok","http":503}},"expected":{"state":"BROKEN","scope":"global","attribution":"NOT_OBSERVABLE","alert":true}},
+    {"id":"geo-local-failure","assetType":"LANDING","geos":{"DE":{"dns":"ok","tls":"ok","http":451},"NL":{"dns":"ok","tls":"ok","http":200,"page":"expected","cta":"ok"}},"expected":{"state":"BROKEN","scope":"geo_local","affectedGeos":["DE"],"attribution":"NOT_OBSERVABLE","alert":true}},
+    {"id":"blocked-mirror","assetType":"MIRROR","geos":{"TR":{"dns":"nxdomain"},"NL":{"dns":"ok","tls":"ok","http":200,"page":"expected"}},"expected":{"state":"BROKEN","scope":"geo_local","affectedGeos":["TR"],"attribution":"NOT_OBSERVABLE","alert":true,"mustNotClaim":"regulator_or_isp_block_without_external_evidence"}},
+    {"id":"redirect-loop","assetType":"LANDING","geos":{"DE":{"dns":"ok","tls":"ok","redirects":["https://a.test/","https://b.test/","https://a.test/"]}},"expected":{"state":"BROKEN","scope":"observed_path","attribution":"OBSERVED_REDIRECT_LOOP","alert":true}},
+    {"id":"soft-200-error","assetType":"LANDING","geos":{"DE":{"dns":"ok","tls":"ok","http":200,"page":"error_template","criticalAssets":"ok"}},"expected":{"state":"BROKEN","scope":"observed_path","attribution":"OBSERVED_PAGE_FAILURE","alert":true}},
+    {"id":"broken-cta","assetType":"LANDING","geos":{"DE":{"dns":"ok","tls":"ok","http":200,"page":"expected","criticalAssets":"ok","cta":"missing_or_invalid"}},"expected":{"state":"DEGRADED","scope":"conversion_path","attribution":"OBSERVED_CTA_FAILURE","alert":true}},
+    {"id":"analytics-cdn-noise","assetType":"LANDING","geos":{"DE":{"dns":"ok","tls":"ok","http":200,"page":"expected","criticalAssets":"ok","cta":"ok","thirdPartyFailures":[{"url":"https://cdn.example/analytics.js","role":"analytics","http":503}]}},"expected":{"state":"HEALTHY","scope":"none","attribution":"NOT_OBSERVABLE","alert":false,"mustNotCreateDependencyEdge":true}}
+  ]
+}
