@@ -211,10 +211,13 @@ function extractHostnames(html, baseUrl) {
   return [...new Set(extractExternalResources(html, baseUrl).map((resource) => resource.hostname))];
 }
 
-function inventoryExternalSurfaces(resources, operatorHostname) {
+function inventoryExternalSurfaces(resources, operatorHostnames) {
+  const internalHostnames = new Set((Array.isArray(operatorHostnames) ? operatorHostnames : [operatorHostnames])
+    .filter(Boolean)
+    .map((hostname) => String(hostname).toLowerCase().replace(/\.$/, '')));
   const surfaceMap = new Map();
   for (const resource of resources) {
-    if (!resource.hostname || resource.hostname === operatorHostname) continue;
+    if (!resource.hostname || internalHostnames.has(resource.hostname)) continue;
     if (!surfaceMap.has(resource.hostname)) {
       if (surfaceMap.size >= MAX_OBSERVED_SURFACES) break;
       surfaceMap.set(resource.hostname, {
@@ -255,7 +258,7 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
   try { html = (await response.text()).slice(0, MAX_BODY_BYTES); } catch { html = ''; }
 
   const resources = extractExternalResources(html, finalUrl);
-  const observedSurfaces = inventoryExternalSurfaces(resources, target.hostname);
+  const observedSurfaces = inventoryExternalSurfaces(resources, [target.hostname, finalUrl.hostname]);
   const hostEvidence = [];
   for (const resource of resources) {
     for (const fingerprint of HOST_FINGERPRINTS) {
