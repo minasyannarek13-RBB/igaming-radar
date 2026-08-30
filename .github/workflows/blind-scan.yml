@@ -8,6 +8,7 @@ on:
       - 'src/scanner.js'
       - 'src/evidence.js'
       - 'scripts/blind-scan.js'
+      - 'test/**/*.test.js'
       - 'validation/blind-targets.txt'
       - '.github/workflows/blind-scan.yml'
 
