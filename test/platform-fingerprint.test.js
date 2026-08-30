@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { scanTarget } from '../src/scanner.js';
 import { OBSERVATION_STATES } from '../src/evidence.js';
 
-function fakeResponse(body, status = 200) {
+function fakeResponse(body, status = 200, headers = {}) {
   return {
     status,
     ok: status >= 200 && status < 300,
-    headers: { get: () => null },
+    headers: { get: (name) => headers[String(name).toLowerCase()] ?? null },
     async text() { return body; }
   };
 }
@@ -24,7 +24,7 @@ async function scan(body) {
   });
 }
 
-test('attributes corroborated Entain shared application runtime at LOW confidence', async () => {
+test('attributes corroborated Entain shared application runtime at LOW confidence with auditable HTTP provenance', async () => {
   const result = await scan(`<script src="${entainRuntime}"></script>`);
 
   assert.equal(result.state, OBSERVATION_STATES.OBSERVED);
@@ -33,7 +33,36 @@ test('attributes corroborated Entain shared application runtime at LOW confidenc
   assert.equal(result.dependencies[0].capability, 'Sportsbook/Platform');
   assert.equal(result.dependencies[0].component, 'Shared application runtime');
   assert.equal(result.dependencies[0].confidence, 'LOW');
-  assert.equal(result.evidence[0].locator, 'scmedia.itsfogo.com');
+  assert.deepEqual(result.dependencies[0].evidenceIds, [result.evidence[0].id]);
+  assert.equal(result.evidence[0].evidenceClass, 'runtime_resource_http');
+  assert.equal(result.evidence[0].locator, entainRuntime);
+  assert.equal(result.evidence[0].requestedUrl, entainRuntime);
+  assert.equal(result.evidence[0].finalUrl, entainRuntime);
+  assert.equal(result.evidence[0].finalHostname, 'scmedia.itsfogo.com');
+  assert.equal(result.evidence[0].httpStatus, 200);
+  assert.equal(result.evidence[0].rawSignal, 'HTTP 200');
+  assert.equal(result.evidence[0].live, true);
+});
+
+test('preserves final same-provider redirect provenance for corroborated Entain runtime', async () => {
+  const redirectedRuntime = 'https://scmedia-us.itsfogo.com/$-$/7187bf0a675b46a89627b38d9d3d0f66.js';
+  const html = `<script src="${entainRuntime}"></script>`;
+  const result = await scanTarget('operator.example', {
+    lookupImpl: publicLookup,
+    fetchImpl: async (url) => {
+      if (url.hostname === 'operator.example') return fakeResponse(html);
+      if (url.href === entainRuntime) return fakeResponse('', 302, { location: redirectedRuntime });
+      if (url.href === redirectedRuntime) return fakeResponse('', 200);
+      return fakeResponse('', 404);
+    },
+    now
+  });
+
+  assert.equal(result.dependencies.length, 1);
+  assert.equal(result.evidence[0].requestedUrl, entainRuntime);
+  assert.equal(result.evidence[0].finalUrl, redirectedRuntime);
+  assert.equal(result.evidence[0].finalHostname, 'scmedia-us.itsfogo.com');
+  assert.equal(result.evidence[0].httpStatus, 200);
 });
 
 test('does not attribute Entain when runtime-looking resource is not externally corroborated', async (t) => {

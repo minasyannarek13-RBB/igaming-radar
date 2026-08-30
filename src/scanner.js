@@ -197,16 +197,23 @@ function resourceMatchesFingerprint(resource, fingerprint) {
 
 async function corroborateFingerprintResource(resource, fingerprint, { fetchImpl, lookupImpl }) {
   try {
-    const { response, finalUrl } = await fetchPublicTarget(normalizeTarget(resource.url), { fetchImpl, lookupImpl });
+    const requestedUrl = normalizeTarget(resource.url).href;
+    const { response, finalUrl } = await fetchPublicTarget(new URL(requestedUrl), { fetchImpl, lookupImpl });
     const finalHost = finalUrl.hostname.toLowerCase().replace(/\.$/, '');
     const corroborated = response.ok === true && hostnameMatches(finalHost, fingerprint.suffix);
+    const observation = corroborated ? {
+      requestedUrl,
+      finalUrl: finalUrl.href,
+      finalHostname: finalHost,
+      httpStatus: response.status
+    } : null;
     if (typeof response.discard === 'function') await response.discard();
     else if (response.body && typeof response.body.cancel === 'function') {
       try { await response.body.cancel(); } catch { /* Best-effort cleanup only. */ }
     }
-    return corroborated;
+    return observation;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -295,13 +302,20 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
     for (const fingerprint of HOST_FINGERPRINTS) {
       if (!resourceMatchesFingerprint(resource, fingerprint)) continue;
       const cacheKey = `${fingerprint.suffix}|${resource.url}`;
-      let corroborated = corroborationCache.get(cacheKey);
-      if (corroborated === undefined) {
-        corroborated = await corroborateFingerprintResource(resource, fingerprint, { fetchImpl, lookupImpl });
-        corroborationCache.set(cacheKey, corroborated);
+      let corroboration = corroborationCache.get(cacheKey);
+      if (corroboration === undefined) {
+        corroboration = await corroborateFingerprintResource(resource, fingerprint, { fetchImpl, lookupImpl });
+        corroborationCache.set(cacheKey, corroboration);
       }
-      if (corroborated) {
-        hostEvidence.push({ ...fingerprint, resourceMatch: undefined, locator: resource.hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
+      if (corroboration) {
+        hostEvidence.push({
+          ...fingerprint,
+          resourceMatch: undefined,
+          locator: corroboration.requestedUrl,
+          evidenceClass: 'runtime_resource_http',
+          rawSignal: `HTTP ${corroboration.httpStatus}`,
+          corroboration
+        });
       }
     }
   }
@@ -312,7 +326,22 @@ export async function scanTarget(input, { fetchImpl, lookupImpl = dnsLookup, now
   let index = 1;
   for (const signal of unique.values()) {
     const id = evidenceId(index++);
-    const record = { id, sourceId: `${signal.evidenceClass}:${signal.locator}`, observedAt, locator: signal.locator, evidenceClass: signal.evidenceClass, state: OBSERVATION_STATES.OBSERVED, rawSignal: signal.rawSignal, live: true };
+    const record = {
+      id,
+      sourceId: `${signal.evidenceClass}:${signal.locator}`,
+      observedAt,
+      locator: signal.locator,
+      evidenceClass: signal.evidenceClass,
+      state: OBSERVATION_STATES.OBSERVED,
+      rawSignal: signal.rawSignal,
+      live: true,
+      ...(signal.corroboration ? {
+        requestedUrl: signal.corroboration.requestedUrl,
+        finalUrl: signal.corroboration.finalUrl,
+        finalHostname: signal.corroboration.finalHostname,
+        httpStatus: signal.corroboration.httpStatus
+      } : {})
+    };
     if (!validateEvidence(record).ok) continue;
     evidence.push(record);
     const edge = { operator: target.hostname, capability: signal.capability, provider: signal.provider, component: signal.component, confidence: 'LOW', evidenceIds: [id] };
