@@ -13,9 +13,17 @@ Evidence reviewed 2026-08-30:
 
 Scanner policy:
 - Exact/suffix-safe hostname match only; `playngonetwork.com.evil.example` must never match.
-- Presence in operator HTML is recorded as live observed hostname evidence.
+- Hostname presence alone is not sufficient for a `Game Provider/RGS` dependency edge.
+- Current production corroboration requires a `src` resource on the suffix with a runtime path matching `/casino/game/...`.
+- Plain links and non-runtime assets on `*.playngonetwork.com` remain `Observed` external surfaces with `UNATTRIBUTED` attribution and create no provider dependency.
 - Resulting dependency confidence remains `LOW`; this fingerprint alone must never create HIGH-confidence root-cause attribution.
 - Unknown external hostnames remain `UNATTRIBUTED`.
+
+Regression cases:
+- Runtime iframe `https://operator-cw.playngonetwork.com/casino/game/index.html` -> LOW-confidence Play'n GO dependency.
+- Plain `<a href="https://playngonetwork.com/">` -> no dependency, surface remains `UNATTRIBUTED`.
+- Non-runtime asset `https://operator-cw.playngonetwork.com/assets/logo.svg` -> no dependency, surface remains `UNATTRIBUTED`.
+- Suffix spoof `playngonetwork.com.evil.example/casino/game/...` -> no dependency.
 
 Sources:
 - https://radar.cloudflare.com/domains/domain/playngonetwork.com
