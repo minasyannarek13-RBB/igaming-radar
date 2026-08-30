@@ -29,6 +29,14 @@ test('private and reserved IP ranges are rejected', () => {
   assert.equal(isPrivateIp('2606:4700:4700::1111'), false);
 });
 
+test('IPv4-mapped IPv6 is normalized through the IPv4 public-range guard', () => {
+  for (const ip of ['::ffff:127.0.0.1', '::ffff:10.2.3.4', '::ffff:172.16.1.1', '::ffff:192.168.4.5', '::ffff:169.254.169.254', '::ffff:100.64.1.2', '::ffff:ac10:0101', '::ffff:6440:0102']) {
+    assert.equal(isPrivateIp(ip), true, ip);
+  }
+  assert.equal(isPrivateIp('::ffff:8.8.8.8'), false);
+  assert.equal(isPrivateIp('::ffff:0808:0808'), false);
+});
+
 test('DNS resolution to private address is blocked before fetch', async () => {
   let fetched = false;
   const result = await scanTarget('casino.example', {
