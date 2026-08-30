@@ -52,8 +52,17 @@ function normalizeTarget(input) {
   return url;
 }
 
+function normalizeIpv6(address) {
+  try {
+    const hostname = new URL(`http://[${address}]/`).hostname;
+    return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1).toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 function mappedIpv4FromIpv6(address) {
-  const value = String(address || '').toLowerCase();
+  const value = normalizeIpv6(address) || String(address || '').toLowerCase();
   if (!value.startsWith('::ffff:')) return null;
   const tail = value.slice('::ffff:'.length);
   if (isIP(tail) === 4) return tail;
@@ -69,10 +78,14 @@ function isPrivateIp(address) {
   if (address.includes(':')) {
     const mapped = mappedIpv4FromIpv6(address);
     if (mapped) return isPrivateIp(mapped);
-    const value = address.toLowerCase();
-    return value === '::' || value === '::1' || value.startsWith('fc') || value.startsWith('fd') ||
+    const value = normalizeIpv6(address);
+    if (!value) return true;
+    return value === '::' || value === '::1' || value.startsWith('::') ||
+      value.startsWith('fc') || value.startsWith('fd') ||
       value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb') ||
-      value.startsWith('ff') || value.startsWith('2001:db8:');
+      value.startsWith('ff') || value.startsWith('64:ff9b:') || value === '64:ff9b::' ||
+      value.startsWith('100:') || value.startsWith('2001:0:') || value.startsWith('2001:2:') ||
+      value.startsWith('2001:db8:') || value === '2001:db8::' || value.startsWith('2002:');
   }
   const parts = address.split('.').map(Number);
   const [a, b] = parts;
