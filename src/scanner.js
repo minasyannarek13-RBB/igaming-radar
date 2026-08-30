@@ -251,10 +251,10 @@ function extractExternalResources(html, baseUrl) {
         url: url.href,
         hostname: url.hostname.toLowerCase().replace(/\.$/, ''),
         path: `${url.pathname}${url.search}`,
-        attribute: match[1].toLowerCase(),
-        tag
+        attribute: match[1].toLowerCase()
       };
-      const key = `${normalized.tag || 'unknown'}|${normalized.attribute}|${normalized.url}`;
+      Object.defineProperty(normalized, 'tag', { value: tag, enumerable: false });
+      const key = `${tag || 'unknown'}|${normalized.attribute}|${normalized.url}`;
       if (!seen.has(key)) {
         seen.add(key);
         resources.push(normalized);
@@ -288,7 +288,7 @@ function inventoryExternalSurfaces(resources, operatorHostnames) {
       });
     }
     const surface = surfaceMap.get(resource.hostname);
-    if (surface.sampleResources.length < 3) surface.sampleResources.push({ path: resource.path, attribute: resource.attribute, tag: resource.tag });
+    if (surface.sampleResources.length < 3) surface.sampleResources.push({ path: resource.path, attribute: resource.attribute });
   }
   return [...surfaceMap.values()];
 }
