@@ -30,6 +30,56 @@ export function provenanceFamily(channel) {
   return ALLOWED_PROVENANCE_FAMILIES.has(family) ? family : null;
 }
 
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function trustedProvenanceBindingErrors(record, family) {
+  const errors = [];
+  if (!family) return errors;
+
+  if (!record.sourceId.startsWith(`${family}:`)) {
+    errors.push(`provenanceChannel ${family} does not match sourceId sensor family`);
+  }
+
+  if (family === PROVENANCE_FAMILIES.RUNTIME_RESOURCE_HTTP) {
+    if (record.evidenceClass !== 'runtime_resource_http') errors.push('runtime_resource_http provenance requires runtime_resource_http evidenceClass');
+    if (!isHttpUrl(record.locator) || !isHttpUrl(record.requestedUrl) || !isHttpUrl(record.finalUrl)) {
+      errors.push('runtime_resource_http provenance requires HTTP(S) locator/requestedUrl/finalUrl');
+    }
+    if (typeof record.finalHostname !== 'string' || record.finalHostname.trim() === '') errors.push('runtime_resource_http provenance requires finalHostname');
+    if (!Number.isInteger(record.httpStatus) || record.httpStatus < 100 || record.httpStatus > 599) errors.push('runtime_resource_http provenance requires valid httpStatus');
+  }
+
+  if (family === PROVENANCE_FAMILIES.AUTHORITATIVE_DNS) {
+    if (record.evidenceClass !== 'authoritative_dns') errors.push('authoritative_dns provenance requires authoritative_dns evidenceClass');
+    if (typeof record.dnsName !== 'string' || record.dnsName.trim() === '') errors.push('authoritative_dns provenance requires dnsName');
+    if (!Array.isArray(record.dnsAnswers) || record.dnsAnswers.length === 0 || record.dnsAnswers.some((answer) => typeof answer !== 'string' || answer.trim() === '')) {
+      errors.push('authoritative_dns provenance requires non-empty dnsAnswers');
+    }
+    if (record.authoritative !== true) errors.push('authoritative_dns provenance requires authoritative=true');
+  }
+
+  if (family === PROVENANCE_FAMILIES.FIRST_PARTY_METADATA) {
+    if (record.evidenceClass !== 'first_party_metadata') errors.push('first_party_metadata provenance requires first_party_metadata evidenceClass');
+    if (!isHttpUrl(record.locator)) errors.push('first_party_metadata provenance requires HTTP(S) locator');
+    if (record.firstParty !== true) errors.push('first_party_metadata provenance requires firstParty=true');
+  }
+
+  if (family === PROVENANCE_FAMILIES.TLS_CERTIFICATE) {
+    if (record.evidenceClass !== 'tls_certificate') errors.push('tls_certificate provenance requires tls_certificate evidenceClass');
+    if (typeof record.certificateFingerprint !== 'string' || record.certificateFingerprint.trim() === '') errors.push('tls_certificate provenance requires certificateFingerprint');
+    if (typeof record.certificateSubject !== 'string' || record.certificateSubject.trim() === '') errors.push('tls_certificate provenance requires certificateSubject');
+  }
+
+  return errors;
+}
+
 export function validateEvidence(record) {
   const errors = [];
 
@@ -44,8 +94,13 @@ export function validateEvidence(record) {
     }
   }
 
-  if (record.provenanceChannel !== undefined && !provenanceFamily(record.provenanceChannel)) {
+  const family = record.provenanceChannel === undefined ? null : provenanceFamily(record.provenanceChannel);
+  if (record.provenanceChannel !== undefined && !family) {
     errors.push('invalid provenanceChannel family');
+  }
+
+  if (family && typeof record.sourceId === 'string' && typeof record.evidenceClass === 'string') {
+    errors.push(...trustedProvenanceBindingErrors(record, family));
   }
 
   if (record.state && !Object.values(OBSERVATION_STATES).includes(record.state)) {
@@ -109,7 +164,7 @@ export function validateDependencyEdge(edge, evidenceById = new Map()) {
     );
 
     if (observedFamilies.size < 2) {
-      errors.push('HIGH confidence requires at least two independent trusted Observed provenance families');
+      errors.push('HIGH confidence requires at least two independently bound trusted Observed provenance families');
     }
   }
 
