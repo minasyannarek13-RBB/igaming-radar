@@ -81,6 +81,21 @@ test('inventories external surfaces with resource context without turning them i
   assert.deepEqual(result.observedSurfaces, [{ hostname: 'unknown-vendor.example', state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname', sampleResources: [{ path: '/runtime/app.js?v=2', attribute: 'src' }] }]);
 });
 
+test('redirected final operator host is not inventoried as an external surface', async () => {
+  const responses = [
+    fakeResponse({ status: 302, headers: { location: 'https://www.casino.example/' } }),
+    fakeResponse({ url: 'https://www.casino.example/', body: '<script src="https://www.casino.example/app.js"></script><link href="https://cdn.vendor.example/style.css">' })
+  ];
+  const result = await scanTarget('casino.example', {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => responses.shift(),
+    now: () => new Date('2026-08-30T00:00:00Z')
+  });
+  assert.equal(result.state, OBSERVATION_STATES.NOT_OBSERVABLE);
+  assert.deepEqual(result.dependencies, []);
+  assert.deepEqual(result.observedSurfaces, [{ hostname: 'cdn.vendor.example', state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname', sampleResources: [{ path: '/style.css', attribute: 'href' }] }]);
+});
+
 test('creates an Observed CloudFront edge only from an explicit public hostname', async () => {
   const result = await scan('casino.example', { fetchImpl: async () => fakeResponse({ body: '<script src="https://d111111abcdef8.cloudfront.net/app.js"></script>' }), now: () => new Date('2026-08-30T00:00:00Z') });
   assert.equal(result.state, OBSERVATION_STATES.OBSERVED); assert.equal(result.dependencies.length, 1); assert.equal(result.dependencies[0].provider, 'Amazon CloudFront'); assert.equal(result.dependencies[0].confidence, 'LOW'); assert.equal(result.evidence[0].state, OBSERVATION_STATES.OBSERVED); assert.equal(result.evidence[0].locator, 'd111111abcdef8.cloudfront.net'); assert.ok(result.dependencies[0].evidenceIds.includes(result.evidence[0].id));
