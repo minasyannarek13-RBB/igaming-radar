@@ -2,6 +2,7 @@ import { isIP } from 'node:net';
 import { OBSERVATION_STATES, validateDependencyEdge, validateEvidence } from './evidence.js';
 
 const MAX_BODY_BYTES = 1_000_000;
+const MAX_OBSERVED_SURFACES = 100;
 
 const HOST_FINGERPRINTS = Object.freeze([
   { suffix: 'cloudfront.net', provider: 'Amazon CloudFront', capability: 'CDN/Cloud', component: 'CDN edge' },
@@ -49,6 +50,18 @@ function extractHostnames(html, baseUrl) {
   return [...hosts];
 }
 
+function inventoryExternalSurfaces(hostnames, operatorHostname) {
+  return [...new Set(hostnames)]
+    .filter((hostname) => hostname && hostname !== operatorHostname)
+    .slice(0, MAX_OBSERVED_SURFACES)
+    .map((hostname) => ({
+      hostname,
+      state: OBSERVATION_STATES.OBSERVED,
+      attribution: 'UNATTRIBUTED',
+      evidenceClass: 'html_external_hostname'
+    }));
+}
+
 function evidenceId(index) {
   return `ev-${String(index).padStart(4, '0')}`;
 }
@@ -74,7 +87,8 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, now = ()
       reason: 'target_fetch_failed',
       detail: error?.name || 'fetch_error',
       evidence: [],
-      dependencies: []
+      dependencies: [],
+      observedSurfaces: []
     };
   }
 
@@ -96,8 +110,10 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, now = ()
     html = '';
   }
 
+  const extractedHostnames = extractHostnames(html, finalUrl);
+  const observedSurfaces = inventoryExternalSurfaces(extractedHostnames, target.hostname);
   const hostEvidence = [];
-  for (const hostname of extractHostnames(html, finalUrl)) {
+  for (const hostname of extractedHostnames) {
     for (const fingerprint of HOST_FINGERPRINTS) {
       if (hostnameMatches(hostname, fingerprint.suffix)) {
         hostEvidence.push({ ...fingerprint, locator: hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
@@ -146,7 +162,8 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, now = ()
       state: OBSERVATION_STATES.NOT_OBSERVABLE,
       reason: response.ok ? 'no_supported_dependency_signal' : `http_${response.status}`,
       evidence: [],
-      dependencies: []
+      dependencies: [],
+      observedSurfaces
     };
   }
 
@@ -155,8 +172,9 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, now = ()
     state: OBSERVATION_STATES.OBSERVED,
     scannedUrl: finalUrl.href,
     evidence,
-    dependencies: edges
+    dependencies: edges,
+    observedSurfaces
   };
 }
 
-export { extractHostnames, hostnameMatches, normalizeTarget, HOST_FINGERPRINTS };
+export { extractHostnames, hostnameMatches, inventoryExternalSurfaces, normalizeTarget, HOST_FINGERPRINTS };
