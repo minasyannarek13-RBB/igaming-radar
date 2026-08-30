@@ -1,8 +1,10 @@
 import { isIP } from 'node:net';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { OBSERVATION_STATES, validateDependencyEdge, validateEvidence } from './evidence.js';
 
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_OBSERVED_SURFACES = 100;
+const MAX_REDIRECTS = 5;
 
 const HOST_FINGERPRINTS = Object.freeze([
   { suffix: 'cloudfront.net', provider: 'Amazon CloudFront', capability: 'CDN/Cloud', component: 'CDN edge' },
@@ -27,6 +29,50 @@ function normalizeTarget(input) {
   if (url.port && !['80', '443'].includes(url.port)) throw new Error('non-standard target ports are not supported');
 
   return url;
+}
+
+function isPrivateIp(address) {
+  if (!address || !isIP(address)) return true;
+  if (address.includes(':')) {
+    const value = address.toLowerCase();
+    return value === '::' || value === '::1' || value.startsWith('fc') || value.startsWith('fd') ||
+      value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb') ||
+      value.startsWith('ff') || value.startsWith('2001:db8:') || value.startsWith('::ffff:127.') ||
+      value.startsWith('::ffff:10.') || value.startsWith('::ffff:192.168.') || value.startsWith('::ffff:169.254.');
+  }
+  const parts = address.split('.').map(Number);
+  const [a, b] = parts;
+  return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+    (a === 192 && b === 0) || (a === 192 && b === 0 && parts[2] === 2) ||
+    (a === 198 && (b === 18 || b === 19)) || (a === 198 && b === 51 && parts[2] === 100) ||
+    (a === 203 && b === 0 && parts[2] === 113) || a >= 224;
+}
+
+async function assertPublicResolution(url, lookupImpl = dnsLookup) {
+  const normalized = normalizeTarget(url.href);
+  const answers = await lookupImpl(normalized.hostname, { all: true, verbatim: true });
+  if (!Array.isArray(answers) || answers.length === 0) throw new Error('target DNS resolution returned no addresses');
+  if (answers.some((answer) => isPrivateIp(answer?.address))) throw new Error('target resolves to a non-public address');
+  return normalized;
+}
+
+async function fetchPublicTarget(initialUrl, { fetchImpl, lookupImpl }) {
+  let current = initialUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    await assertPublicResolution(current, lookupImpl);
+    const response = await fetchImpl(current, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000),
+      headers: { 'user-agent': 'iGaming-Radar-FreeScan/0.1 (+public-observation-only)' }
+    });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return { response, finalUrl: current };
+    if (hop === MAX_REDIRECTS) throw new Error('too many redirects');
+    const location = response.headers?.get?.('location');
+    if (!location) throw new Error('redirect without location');
+    current = normalizeTarget(new URL(location, current).href);
+  }
+  throw new Error('too many redirects');
 }
 
 function hostnameMatches(hostname, suffix) {
@@ -54,19 +100,12 @@ function inventoryExternalSurfaces(hostnames, operatorHostname) {
   return [...new Set(hostnames)]
     .filter((hostname) => hostname && hostname !== operatorHostname)
     .slice(0, MAX_OBSERVED_SURFACES)
-    .map((hostname) => ({
-      hostname,
-      state: OBSERVATION_STATES.OBSERVED,
-      attribution: 'UNATTRIBUTED',
-      evidenceClass: 'html_external_hostname'
-    }));
+    .map((hostname) => ({ hostname, state: OBSERVATION_STATES.OBSERVED, attribution: 'UNATTRIBUTED', evidenceClass: 'html_external_hostname' }));
 }
 
-function evidenceId(index) {
-  return `ev-${String(index).padStart(4, '0')}`;
-}
+function evidenceId(index) { return `ev-${String(index).padStart(4, '0')}`; }
 
-export async function scanTarget(input, { fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
+export async function scanTarget(input, { fetchImpl = globalThis.fetch, lookupImpl = dnsLookup, now = () => new Date() } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required');
   const target = normalizeTarget(input);
   const observedAt = now().toISOString();
@@ -74,107 +113,44 @@ export async function scanTarget(input, { fetchImpl = globalThis.fetch, now = ()
   const edges = [];
 
   let response;
+  let finalUrl;
   try {
-    response = await fetchImpl(target, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(10_000),
-      headers: { 'user-agent': 'iGaming-Radar-FreeScan/0.1 (+public-observation-only)' }
-    });
+    ({ response, finalUrl } = await fetchPublicTarget(target, { fetchImpl, lookupImpl }));
   } catch (error) {
-    return {
-      target: target.hostname,
-      state: OBSERVATION_STATES.NOT_OBSERVABLE,
-      reason: 'target_fetch_failed',
-      detail: error?.name || 'fetch_error',
-      evidence: [],
-      dependencies: [],
-      observedSurfaces: []
-    };
+    return { target: target.hostname, state: OBSERVATION_STATES.NOT_OBSERVABLE, reason: 'target_fetch_failed', detail: error?.message || error?.name || 'fetch_error', evidence: [], dependencies: [], observedSurfaces: [] };
   }
 
-  const finalUrl = new URL(response.url || target.href);
   const headerEvidence = [];
   const cfRay = response.headers?.get?.('cf-ray');
-  if (cfRay) {
-    headerEvidence.push({
-      provider: 'Cloudflare', capability: 'CDN/Cloud', component: 'Edge/CDN',
-      locator: finalUrl.href, evidenceClass: 'http_response_header', rawSignal: 'cf-ray'
-    });
-  }
+  if (cfRay) headerEvidence.push({ provider: 'Cloudflare', capability: 'CDN/Cloud', component: 'Edge/CDN', locator: finalUrl.href, evidenceClass: 'http_response_header', rawSignal: 'cf-ray' });
 
   let html = '';
-  try {
-    const raw = await response.text();
-    html = raw.slice(0, MAX_BODY_BYTES);
-  } catch {
-    html = '';
-  }
+  try { html = (await response.text()).slice(0, MAX_BODY_BYTES); } catch { html = ''; }
 
   const extractedHostnames = extractHostnames(html, finalUrl);
   const observedSurfaces = inventoryExternalSurfaces(extractedHostnames, target.hostname);
   const hostEvidence = [];
   for (const hostname of extractedHostnames) {
     for (const fingerprint of HOST_FINGERPRINTS) {
-      if (hostnameMatches(hostname, fingerprint.suffix)) {
-        hostEvidence.push({ ...fingerprint, locator: hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
-      }
+      if (hostnameMatches(hostname, fingerprint.suffix)) hostEvidence.push({ ...fingerprint, locator: hostname, evidenceClass: 'html_external_hostname', rawSignal: fingerprint.suffix });
     }
   }
 
   const unique = new Map();
-  for (const signal of [...headerEvidence, ...hostEvidence]) {
-    const key = `${signal.provider}|${signal.capability}|${signal.component}|${signal.locator}|${signal.evidenceClass}`;
-    unique.set(key, signal);
-  }
+  for (const signal of [...headerEvidence, ...hostEvidence]) unique.set(`${signal.provider}|${signal.capability}|${signal.component}|${signal.locator}|${signal.evidenceClass}`, signal);
 
   let index = 1;
   for (const signal of unique.values()) {
     const id = evidenceId(index++);
-    const record = {
-      id,
-      sourceId: `${signal.evidenceClass}:${signal.locator}`,
-      observedAt,
-      locator: signal.locator,
-      evidenceClass: signal.evidenceClass,
-      state: OBSERVATION_STATES.OBSERVED,
-      rawSignal: signal.rawSignal,
-      live: true
-    };
-    const validation = validateEvidence(record);
-    if (!validation.ok) continue;
+    const record = { id, sourceId: `${signal.evidenceClass}:${signal.locator}`, observedAt, locator: signal.locator, evidenceClass: signal.evidenceClass, state: OBSERVATION_STATES.OBSERVED, rawSignal: signal.rawSignal, live: true };
+    if (!validateEvidence(record).ok) continue;
     evidence.push(record);
-
-    const edge = {
-      operator: target.hostname,
-      capability: signal.capability,
-      provider: signal.provider,
-      component: signal.component,
-      confidence: 'LOW',
-      evidenceIds: [id]
-    };
-    const edgeValidation = validateDependencyEdge(edge, new Map(evidence.map((item) => [item.id, item])));
-    if (edgeValidation.ok) edges.push(edge);
+    const edge = { operator: target.hostname, capability: signal.capability, provider: signal.provider, component: signal.component, confidence: 'LOW', evidenceIds: [id] };
+    if (validateDependencyEdge(edge, new Map(evidence.map((item) => [item.id, item]))).ok) edges.push(edge);
   }
 
-  if (edges.length === 0) {
-    return {
-      target: target.hostname,
-      state: OBSERVATION_STATES.NOT_OBSERVABLE,
-      reason: response.ok ? 'no_supported_dependency_signal' : `http_${response.status}`,
-      evidence: [],
-      dependencies: [],
-      observedSurfaces
-    };
-  }
-
-  return {
-    target: target.hostname,
-    state: OBSERVATION_STATES.OBSERVED,
-    scannedUrl: finalUrl.href,
-    evidence,
-    dependencies: edges,
-    observedSurfaces
-  };
+  if (edges.length === 0) return { target: target.hostname, state: OBSERVATION_STATES.NOT_OBSERVABLE, reason: response.ok ? 'no_supported_dependency_signal' : `http_${response.status}`, evidence: [], dependencies: [], observedSurfaces };
+  return { target: target.hostname, state: OBSERVATION_STATES.OBSERVED, scannedUrl: finalUrl.href, evidence, dependencies: edges, observedSurfaces };
 }
 
-export { extractHostnames, hostnameMatches, inventoryExternalSurfaces, normalizeTarget, HOST_FINGERPRINTS };
+export { assertPublicResolution, extractHostnames, fetchPublicTarget, hostnameMatches, inventoryExternalSurfaces, isPrivateIp, normalizeTarget, HOST_FINGERPRINTS };
