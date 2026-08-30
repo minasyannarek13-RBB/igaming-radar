@@ -24,7 +24,8 @@ test('fixture set covers the Domain/Landing release scenarios exactly once', () 
     'soft-200-error-page',
     'broken-cta',
     'analytics-cdn-noise',
-    'healthy-control'
+    'healthy-control',
+    'waf-bot-ambiguous'
   ];
   assert.deepEqual(domainLandingFixtures.map((f) => f.id).sort(), required.sort());
 });
