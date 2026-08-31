@@ -1,4 +1,4 @@
-import { confirmCryptoPaymentDurable } from './crypto-confirmation.js';
+import { confirmCryptoPaymentDurable, verifyCryptoWebhook } from './crypto-confirmation.js';
 import { RedisRestIdempotencyStore } from './redis-rest-idempotency.js';
 
 function requireEnv(env, key) {
@@ -35,19 +35,6 @@ function loadExpectedPayments(env) {
   return registry;
 }
 
-function parseUnsignedEnvelope(rawBody) {
-  if (typeof rawBody !== 'string' || rawBody.length === 0) throw new Error('RAW_BODY_REQUIRED');
-  let event;
-  try {
-    event = JSON.parse(rawBody);
-  } catch {
-    throw new Error('INVALID_WEBHOOK_JSON');
-  }
-  if (!event || typeof event !== 'object' || Array.isArray(event)) throw new Error('INVALID_WEBHOOK_EVENT');
-  if (typeof event.tenantId !== 'string' || typeof event.invoiceId !== 'string') throw new Error('INVALID_WEBHOOK_EVENT');
-  return event;
-}
-
 function readHeader(headers, name) {
   if (!headers) return undefined;
   if (typeof headers.get === 'function') return headers.get(name) ?? undefined;
@@ -79,13 +66,18 @@ export async function processCryptoWebhook({ rawBody, headers, env = process.env
     const redisUrl = requireEnv(env, 'RADAR_REDIS_REST_URL');
     const redisToken = requireEnv(env, 'RADAR_REDIS_REST_TOKEN');
     const registry = loadExpectedPayments(env);
-    const unsigned = parseUnsignedEnvelope(rawBody);
-    const expectedPayment = registry.get(`${unsigned.tenantId}\u0000${unsigned.invoiceId}`);
-    if (!expectedPayment) return { statusCode: 404, body: { error: 'expected_payment_not_found' } };
 
     const timestampHeader = readHeader(headers, 'x-radar-timestamp');
     const signature = readHeader(headers, 'x-radar-signature');
     const timestamp = Number(timestampHeader);
+    const verificationOptions = {
+      secret,
+      ...(Number.isInteger(now) ? { now } : {})
+    };
+    const verifiedEvent = verifyCryptoWebhook({ rawBody, signature, timestamp }, verificationOptions);
+    const expectedPayment = registry.get(`${verifiedEvent.tenantId}\u0000${verifiedEvent.invoiceId}`);
+    if (!expectedPayment) return { statusCode: 404, body: { error: 'expected_payment_not_found' } };
+
     const minConfirmationsRaw = env.RADAR_CRYPTO_MIN_CONFIRMATIONS ?? '1';
     const minConfirmations = Number(minConfirmationsRaw);
     if (!Number.isInteger(minConfirmations) || minConfirmations < 1) throw new Error('CONFIG_MIN_CONFIRMATIONS_INVALID');
