@@ -1,4 +1,5 @@
 import { confirmCryptoPaymentDurable, verifyCryptoWebhook } from './crypto-confirmation.js';
+import { ensureDurableEntitlement } from './entitlement.js';
 import { RedisRestIdempotencyStore } from './redis-rest-idempotency.js';
 
 function requireEnv(env, key) {
@@ -48,6 +49,12 @@ function mapError(error) {
   if (code.startsWith('CONFIG_') || code === 'IDEMPOTENCY_BACKEND_UNAVAILABLE' || code === 'IDEMPOTENCY_BACKEND_ERROR') {
     return { statusCode: 503, body: { error: 'crypto_confirmation_unavailable' } };
   }
+  if (code === 'DURABLE_ENTITLEMENT_STORE_REQUIRED' || code === 'INVALID_ENTITLEMENT_STORE_RESULT') {
+    return { statusCode: 503, body: { error: 'entitlement_unavailable' } };
+  }
+  if (code === 'ENTITLEMENT_IDENTITY_CONFLICT') {
+    return { statusCode: 409, body: { error: 'entitlement_conflict' } };
+  }
   if (code === 'INVALID_WEBHOOK_SIGNATURE' || code === 'SIGNATURE_REQUIRED' || code === 'STALE_WEBHOOK' || code === 'INVALID_WEBHOOK_TIMESTAMP') {
     return { statusCode: 401, body: { error: 'webhook_not_authorized' } };
   }
@@ -82,7 +89,7 @@ export async function processCryptoWebhook({ rawBody, headers, env = process.env
     const minConfirmations = Number(minConfirmationsRaw);
     if (!Number.isInteger(minConfirmations) || minConfirmations < 1) throw new Error('CONFIG_MIN_CONFIRMATIONS_INVALID');
 
-    const idempotencyStore = new RedisRestIdempotencyStore({
+    const durableStore = new RedisRestIdempotencyStore({
       url: redisUrl,
       token: redisToken,
       fetchImpl,
@@ -92,10 +99,15 @@ export async function processCryptoWebhook({ rawBody, headers, env = process.env
     const result = await confirmCryptoPaymentDurable({ rawBody, signature, timestamp }, {
       secret,
       expectedPayment,
-      idempotencyStore,
+      idempotencyStore: durableStore,
       ...(Number.isInteger(now) ? { now } : {}),
       minConfirmations
     });
+
+    let entitlement = null;
+    if (result.state === 'CONFIRMED' || result.state === 'DUPLICATE_PAYMENT_ACCEPTED') {
+      entitlement = await ensureDurableEntitlement(result, { entitlementStore: durableStore });
+    }
 
     return {
       statusCode: 200,
@@ -106,6 +118,20 @@ export async function processCryptoWebhook({ rawBody, headers, env = process.env
         txHash: result.txHash,
         confirmations: result.confirmations,
         entitlementEligible: result.entitlementEligible,
+        entitlement: entitlement ? {
+          entitlementId: entitlement.entitlementId,
+          tenantId: entitlement.tenantId,
+          plan: entitlement.plan,
+          state: entitlement.state,
+          brandLimit: entitlement.brandLimit,
+          priceUsd: entitlement.priceUsd,
+          materialization: entitlement.materialization,
+          persistence: entitlement.persistence,
+          provenance: entitlement.provenance,
+          savedGgr: null,
+          savedRevenue: null,
+          roiClaim: 'NOT_CLAIMED'
+        } : null,
         persistence: result.persistence,
         provenance: result.provenance,
         savedGgr: null,
