@@ -50,6 +50,22 @@ function assertEventShape(event) {
   if (!Number.isInteger(event.confirmations) || event.confirmations < 0) throw new Error('INVALID_CONFIRMATIONS');
 }
 
+function paymentKey(event) {
+  return `${event.tenantId}\u0000${event.invoiceId}`;
+}
+
+function paymentFingerprint(event) {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      tenantId: event.tenantId,
+      invoiceId: event.invoiceId,
+      asset: event.asset,
+      amount: event.amount,
+      txHash: event.txHash
+    }))
+    .digest('hex');
+}
+
 export function signCryptoWebhook(rawBody, { secret, timestamp }) {
   requireSecret(secret);
   requireRawBody(rawBody);
@@ -84,15 +100,30 @@ export function verifyCryptoWebhook({ rawBody, signature, timestamp }, {
 export class MemoryIdempotencyStore {
   constructor() {
     this.events = new Map();
+    this.payments = new Map();
+    this.persistence = 'PROCESS_LOCAL';
   }
 
-  claim(eventId, fingerprint) {
+  claimEvent(eventId, fingerprint) {
     const existing = this.events.get(eventId);
     if (!existing) {
       this.events.set(eventId, fingerprint);
       return 'NEW';
     }
     return existing === fingerprint ? 'DUPLICATE' : 'CONFLICT';
+  }
+
+  claimPayment(key, fingerprint) {
+    const existing = this.payments.get(key);
+    if (!existing) {
+      this.payments.set(key, fingerprint);
+      return 'NEW';
+    }
+    return existing === fingerprint ? 'DUPLICATE' : 'CONFLICT';
+  }
+
+  claim(eventId, fingerprint) {
+    return this.claimEvent(eventId, fingerprint);
   }
 }
 
@@ -104,15 +135,17 @@ export function confirmCryptoPayment(input, {
   toleranceSeconds = DEFAULT_TOLERANCE_SECONDS,
   minConfirmations = 1
 } = {}) {
-  if (!idempotencyStore || typeof idempotencyStore.claim !== 'function') throw new Error('IDEMPOTENCY_STORE_REQUIRED');
+  if (!idempotencyStore || typeof idempotencyStore.claimEvent !== 'function' || typeof idempotencyStore.claimPayment !== 'function') {
+    throw new Error('ATOMIC_IDEMPOTENCY_STORE_REQUIRED');
+  }
   if (!Number.isInteger(minConfirmations) || minConfirmations < 1) throw new Error('INVALID_MIN_CONFIRMATIONS');
 
   const event = verifyCryptoWebhook(input, { secret, now, toleranceSeconds });
   assertExpectedPayment(event, expectedPayment);
 
-  const fingerprint = createHash('sha256').update(input.rawBody).digest('hex');
-  const claim = idempotencyStore.claim(event.eventId, fingerprint);
-  if (claim === 'CONFLICT') throw new Error('WEBHOOK_EVENT_REPLAY_CONFLICT');
+  const eventFingerprint = createHash('sha256').update(input.rawBody).digest('hex');
+  const eventClaim = idempotencyStore.claimEvent(event.eventId, eventFingerprint);
+  if (eventClaim === 'CONFLICT') throw new Error('WEBHOOK_EVENT_REPLAY_CONFLICT');
 
   const base = {
     eventId: event.eventId,
@@ -122,7 +155,9 @@ export function confirmCryptoPayment(input, {
     asset: event.asset,
     amount: event.amount,
     confirmations: event.confirmations,
-    idempotency: claim,
+    idempotency: eventClaim,
+    paymentClaim: null,
+    persistence: idempotencyStore.persistence ?? 'UNKNOWN',
     provenance: {
       status: 'Observed',
       source: 'SIGNED_PROVIDER_WEBHOOK',
@@ -133,9 +168,25 @@ export function confirmCryptoPayment(input, {
     roiClaim: 'NOT_CLAIMED'
   };
 
-  if (claim === 'DUPLICATE') return { ...base, state: 'DUPLICATE_ACCEPTED', entitlementEligible: false };
+  if (eventClaim === 'DUPLICATE') return { ...base, state: 'DUPLICATE_ACCEPTED', entitlementEligible: false };
   if (event.status !== 'CONFIRMED') return { ...base, state: 'PENDING', entitlementEligible: false };
   if (event.confirmations < minConfirmations) return { ...base, state: 'PENDING', entitlementEligible: false };
 
-  return { ...base, state: 'CONFIRMED', entitlementEligible: true };
+  const finalClaim = idempotencyStore.claimPayment(paymentKey(event), paymentFingerprint(event));
+  if (finalClaim === 'CONFLICT') throw new Error('PAYMENT_IDENTITY_CONFLICT');
+  if (finalClaim === 'DUPLICATE') {
+    return {
+      ...base,
+      paymentClaim: finalClaim,
+      state: 'DUPLICATE_PAYMENT_ACCEPTED',
+      entitlementEligible: false
+    };
+  }
+
+  return {
+    ...base,
+    paymentClaim: finalClaim,
+    state: 'CONFIRMED',
+    entitlementEligible: true
+  };
 }
