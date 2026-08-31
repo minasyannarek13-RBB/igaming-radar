@@ -47,6 +47,7 @@ export const domainLandingFixtures = [
     id: 'broken-cta',
     target: 'https://broken-cta.example/landing',
     geo: 'DE',
+    config: { ctaCritical: true },
     observations: { dns: 'ok', tls: 'ok', http: 200, redirect: 'ok', page: 'ok', criticalAssets: 'ok', cta: 'broken' },
     expected: { state: 'DEGRADED', scope: 'conversion-path', attributable: false }
   },
