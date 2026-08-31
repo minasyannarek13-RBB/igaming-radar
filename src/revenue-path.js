@@ -85,6 +85,13 @@ export function classifyDomainLanding(input) {
     return { ...result, state: 'BROKEN', scope: 'target' };
   }
 
+  // A received 5xx is direct evidence that this landing request failed at the
+  // observed vantage. It is enough to mark the target observation BROKEN, but
+  // it does not establish a global/GEO outage or any infrastructure cause.
+  if (Number.isInteger(observations.http) && observations.http >= 500 && observations.http <= 599) {
+    return { ...result, state: 'BROKEN', scope: 'target-observed' };
+  }
+
   if (observations.http === 200 && observations.page === 'error-template') {
     // A soft-200 error/interstitial seen by one automated vantage can be caused
     // by probe-specific edge/WAF/personalization behavior. Preserve the exact
