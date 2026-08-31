@@ -68,4 +68,8 @@ export class RedisRestIdempotencyStore {
   claimPayment(key, fingerprint) {
     return this.claimKey(`${this.prefix}:payment:${keyPart(key)}`, fingerprint, 0);
   }
+
+  claimEntitlement(key, fingerprint) {
+    return this.claimKey(`${this.prefix}:entitlement:${keyPart(key)}`, fingerprint, 0);
+  }
 }

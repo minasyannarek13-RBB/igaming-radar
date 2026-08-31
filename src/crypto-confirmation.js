@@ -215,9 +215,14 @@ export async function confirmCryptoPaymentDurable(input, {
   if (eventClaim === 'CONFLICT') throw new Error('WEBHOOK_EVENT_REPLAY_CONFLICT');
 
   const base = buildBase(event, eventClaim, idempotencyStore.persistence ?? 'UNKNOWN');
-  if (eventClaim === 'DUPLICATE') return { ...base, state: 'DUPLICATE_ACCEPTED', entitlementEligible: false };
-  if (event.status !== 'CONFIRMED') return { ...base, state: 'PENDING', entitlementEligible: false };
-  if (event.confirmations < minConfirmations) return { ...base, state: 'PENDING', entitlementEligible: false };
+  if (event.status !== 'CONFIRMED') {
+    if (eventClaim === 'DUPLICATE') return { ...base, state: 'DUPLICATE_ACCEPTED', entitlementEligible: false };
+    return { ...base, state: 'PENDING', entitlementEligible: false };
+  }
+  if (event.confirmations < minConfirmations) {
+    if (eventClaim === 'DUPLICATE') return { ...base, state: 'DUPLICATE_ACCEPTED', entitlementEligible: false };
+    return { ...base, state: 'PENDING', entitlementEligible: false };
+  }
 
   const finalClaim = await idempotencyStore.claimPayment(paymentKey(event), paymentFingerprint(event));
   if (finalClaim === 'CONFLICT') throw new Error('PAYMENT_IDENTITY_CONFLICT');
