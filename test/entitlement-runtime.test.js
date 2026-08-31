@@ -140,6 +140,26 @@ test('webhook retry can recover entitlement after payment claim succeeded but fi
   assert.equal(retry.body.entitlement.roiClaim, 'NOT_CLAIMED');
 });
 
+test('byte-identical webhook retry recovers entitlement after the first entitlement write fails', async () => {
+  const fetchImpl = recoverableRedisFetch();
+  const input = signed(event({ eventId: 'evt-identical' }));
+
+  const first = await processCryptoWebhook({ ...input, env: ENV, fetchImpl, now: NOW });
+  assert.equal(first.statusCode, 503);
+  assert.equal(first.body.error, 'crypto_confirmation_unavailable');
+
+  const retry = await processCryptoWebhook({ ...input, env: ENV, fetchImpl, now: NOW });
+  assert.equal(retry.statusCode, 200);
+  assert.equal(retry.body.state, 'DUPLICATE_PAYMENT_ACCEPTED');
+  assert.equal(retry.body.entitlementEligible, false);
+  assert.equal(retry.body.entitlement.state, 'ACTIVE');
+  assert.equal(retry.body.entitlement.materialization, 'NEW');
+  assert.equal(retry.body.entitlement.persistence, 'DURABLE_REDIS_REST');
+  assert.equal(retry.body.savedGgr, null);
+  assert.equal(retry.body.savedRevenue, null);
+  assert.equal(retry.body.roiClaim, 'NOT_CLAIMED');
+});
+
 test('pending payment never materializes entitlement', async () => {
   const fetchImpl = recoverableRedisFetch();
   const result = await processCryptoWebhook({ ...signed(event({ status: 'PENDING', confirmations: 0 })), env: ENV, fetchImpl, now: NOW });
