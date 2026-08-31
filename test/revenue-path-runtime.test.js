@@ -52,7 +52,7 @@ test('redirect loop and soft-200 error template are BROKEN', () => {
 });
 
 test('broken CTA is DEGRADED only when configured as conversion-critical', () => {
-  const unconfigured = classify('broken-cta');
+  const unconfigured = classify('broken-cta', { config: {} });
   assert.equal(unconfigured.state, 'HEALTHY');
 
   const configured = classify('broken-cta', { config: { ctaCritical: true } });
