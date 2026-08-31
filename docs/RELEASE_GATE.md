@@ -6,20 +6,22 @@ This file is the single source of truth for Founder Early Access readiness.
 |---|---:|---:|
 | Executable runtime | PASS | PASS |
 | Evidence/data contracts | PASS | PASS: live runtime corroboration preserves requested/final URL, final hostname and HTTP status linked to the edge; provenance family taxonomy is now closed in code |
-| Scanner executable core | PASS | PASS (fixture QA + independent CI) |
+| Scanner executable core | PASS | PASS (fixture QA + independent CI; semantics frozen to regressions) |
 | Free Scan API | PASS | PASS (independent CI) |
 | Blind scans | 30 | PASS: 30/30 executed |
-| Useful scans | >=90% | PASS: 30/30 acceptable (18 Observed, 12 explicit Not observable externally) |
-| Fabricated dependencies | 0 | PENDING RED TEAM: prior 404/403/timeout/DNS fabricated-edge path fixed; final adversarial attribution checks remain |
-| HIGH-confidence false attribution | 0 | IMPLEMENTATION FIXED / PENDING RED TEAM: HIGH now counts independence by closed trusted provenance family, not arbitrary channel string/sourceId/URL; same-family suffix variants cannot satisfy HIGH |
+| Useful scans | >=90% | PASS: 30/30 acceptable; useful-or-explicit 100% |
+| Fabricated dependencies | 0 | PASS: independent adversarial regressions preserve 0 invalid/fabricated dependency edges |
+| HIGH-confidence false attribution | 0 | PASS: closed trusted provenance-family independence verified by regressions |
 | Historical regression | PASS | PENDING |
-| Crypto purchase E2E | PASS | PENDING |
-| Security regression | PASS | BUILD HARDENED / PENDING RED TEAM: DNS pinning/redirect guard plus IPv4-mapped, IPv6 transition/special-range SSRF regressions now pass CI and blind-scan QA |
+| Crypto purchase E2E | PASS | PENDING production signed confirmation/entitlement verification |
+| Security regression | PASS | PASS: SSRF/DNS-rebinding/redirect/private-range and IPv6 transition guards independently replayed in canonical CI |
+| Domain/Landing production runtime | PASS | PENDING: canonical runtime exists and preview is READY; production must serve the same main SHA |
 | Soak | 72h | 0h |
-| Verified usable product link | PASS | PENDING canonical release-owner verification |
+| Verified usable product link | PASS | PENDING canonical Domain/Landing production/runtime verification |
 | Commercial gate | OPEN | CLOSED |
 
 ## Evidence log
+- 2026-08-31: Release evidence reconciled after Domain/Landing runtime merge. Canonical `main` at `f3f24261acc0c35aa86b47e41909c8b6249ffc00` passed Blind Scan QA run `33423265569` (`SUCCESS`). Free Scan security/semantic requirements are independently satisfied and scanner semantics are frozen to regressions: 30/30 blind targets executed, useful-or-explicit 100% against >=90%, 0 invalid/fabricated dependency edges, closed-family HIGH attribution guards, and adversarial SSRF/DNS-rebinding/redirect/private-range regressions. Domain/Landing one-shot runtime is present in canonical code and Vercel preview deployments are READY, but production still served the prior main build and returned 404 for `/api/revenue-domain-landing`; therefore Domain/Landing production/E2E remains CLOSED. This release-evidence-only commit intentionally retriggers the canonical production deployment without changing scanner semantics.
 - 2026-08-30: Build hardened the scanner's DNS-rebinding/SSRF boundary beyond the prior DNS pinning fix. `isPrivateIp` now canonicalizes IPv6 before policy checks and fail-closes IPv4-compatible, IPv4-mapped private ranges, NAT64 (`64:ff9b::/96` and local-use variants), discard/special ranges, Teredo (`2001::/32` canonical form), benchmarking/documentation ranges and 6to4 (`2002::/16`). Regression coverage verifies a DNS answer in an IPv6 transition range is rejected before fetch. The first Teredo regression intentionally failed because Node canonicalizes `2001:0::/32` as `2001::`; Build corrected the guard without weakening the test. Canonical head `83bd57f210d0bee587cf63925c86bee90a67cc72` passed GitHub Actions CI run `33319041677`, Blind Scan QA run `33319041654`, and both Vercel project checks. Security remains PENDING independent Red Team replay before Free Scan release.
 - 2026-08-30: Build closed the Red Team arbitrary-`provenanceChannel` HIGH-confidence bypass. Canonical `main` now enforces a closed provenance-family taxonomy (`runtime_resource_http`, `authoritative_dns`, `first_party_metadata`, `tls_certificate`) and HIGH deduplicates corroboration by trusted family rather than the full channel string. Adversarial regressions prove `runtime_resource_http:A` + `runtime_resource_http:B` fails HIGH, an unknown/fake family is rejected as invalid evidence, undeclared channels fail HIGH, and two different trusted families can pass. Code/test head `dd94a3c91b40cdd7ad45a4172751637c4e33007a` passed GitHub Actions CI run `33313339836`; both Vercel status checks on that SHA are SUCCESS. Evidence contract docs were updated afterward. Implementation blocker is closed; Free Scan remains CLOSED until independent Red Team verification of this fix plus remaining fabricated-attribution/security checks.
 - 2026-08-30: Build hardened HIGH-confidence independence in canonical `main` commit `2c0c2e88b54a792e8f95b092e5698f813a07744f`. `validateDependencyEdge` stopped deduplicating HIGH corroboration by `sourceId` and required explicitly distinct Observed `provenanceChannel` values. Regression coverage proved that two different runtime URLs/sourceIds from the same exact channel fail HIGH and undeclared channels fail HIGH. This was an intermediate hardening step later superseded by closed provenance-family enforcement after Red Team showed arbitrary channel labels could still fake independence.
