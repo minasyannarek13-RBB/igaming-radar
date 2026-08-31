@@ -49,6 +49,8 @@ test('valid signed provider callback confirms only the expected tenant invoice',
   });
   assert.equal(result.state, 'CONFIRMED');
   assert.equal(result.entitlementEligible, true);
+  assert.equal(result.paymentClaim, 'NEW');
+  assert.equal(result.persistence, 'PROCESS_LOCAL');
   assert.equal(result.provenance.status, 'Observed');
   assert.equal(result.provenance.chainObservation, 'Not observable externally');
   assert.equal(result.savedGgr, null);
@@ -98,6 +100,65 @@ test('same event and same payload is accepted idempotently but cannot grant twic
   assert.equal(second.entitlementEligible, false);
 });
 
+test('same payment with distinct event id cannot grant entitlement twice', () => {
+  const store = new MemoryIdempotencyStore();
+  const first = confirmCryptoPayment(signedInput(event({ eventId: 'evt-001' })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: store,
+    now: NOW
+  });
+  const second = confirmCryptoPayment(signedInput(event({ eventId: 'evt-002' })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: store,
+    now: NOW
+  });
+  assert.equal(first.state, 'CONFIRMED');
+  assert.equal(first.entitlementEligible, true);
+  assert.equal(second.state, 'DUPLICATE_PAYMENT_ACCEPTED');
+  assert.equal(second.paymentClaim, 'DUPLICATE');
+  assert.equal(second.entitlementEligible, false);
+});
+
+test('conflicting tx hash for an already claimed invoice fails closed', () => {
+  const store = new MemoryIdempotencyStore();
+  confirmCryptoPayment(signedInput(event({ eventId: 'evt-001', txHash: 'tx-a' })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: store,
+    now: NOW
+  });
+  assert.throws(() => confirmCryptoPayment(signedInput(event({ eventId: 'evt-002', txHash: 'tx-b' })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: store,
+    now: NOW
+  }), /PAYMENT_IDENTITY_CONFLICT/);
+});
+
+test('pending callback does not consume final invoice claim before confirmation', () => {
+  const store = new MemoryIdempotencyStore();
+  const pending = confirmCryptoPayment(signedInput(event({ eventId: 'evt-pending', status: 'PENDING', confirmations: 0 })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: store,
+    now: NOW,
+    minConfirmations: 3
+  });
+  const confirmed = confirmCryptoPayment(signedInput(event({ eventId: 'evt-confirmed', status: 'CONFIRMED', confirmations: 12 })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: store,
+    now: NOW,
+    minConfirmations: 3
+  });
+  assert.equal(pending.state, 'PENDING');
+  assert.equal(pending.entitlementEligible, false);
+  assert.equal(confirmed.state, 'CONFIRMED');
+  assert.equal(confirmed.entitlementEligible, true);
+});
+
 test('same event id with different signed payload is rejected as replay conflict', () => {
   const store = new MemoryIdempotencyStore();
   confirmCryptoPayment(signedInput(), { secret: SECRET, expectedPayment: EXPECTED, idempotencyStore: store, now: NOW });
@@ -134,12 +195,36 @@ test('non-confirmed provider state remains pending', () => {
   assert.equal(result.entitlementEligible, false);
 });
 
-test('production caller must supply an idempotency store', () => {
+test('production caller must supply atomic event and payment idempotency methods', () => {
   assert.throws(() => confirmCryptoPayment(signedInput(), {
     secret: SECRET,
     expectedPayment: EXPECTED,
     now: NOW
-  }), /IDEMPOTENCY_STORE_REQUIRED/);
+  }), /ATOMIC_IDEMPOTENCY_STORE_REQUIRED/);
+  assert.throws(() => confirmCryptoPayment(signedInput(), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: { claimEvent() {} },
+    now: NOW
+  }), /ATOMIC_IDEMPOTENCY_STORE_REQUIRED/);
+});
+
+test('fresh process-local store cannot prove restart/replica replay resistance', () => {
+  const first = confirmCryptoPayment(signedInput(event({ eventId: 'evt-001' })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: new MemoryIdempotencyStore(),
+    now: NOW
+  });
+  const replayOnFreshInstance = confirmCryptoPayment(signedInput(event({ eventId: 'evt-002' })), {
+    secret: SECRET,
+    expectedPayment: EXPECTED,
+    idempotencyStore: new MemoryIdempotencyStore(),
+    now: NOW
+  });
+  assert.equal(first.entitlementEligible, true);
+  assert.equal(replayOnFreshInstance.entitlementEligible, true);
+  assert.equal(replayOnFreshInstance.persistence, 'PROCESS_LOCAL');
 });
 
 test('weak webhook secret is rejected', () => {
