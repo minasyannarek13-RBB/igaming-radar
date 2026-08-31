@@ -13,8 +13,7 @@ function stableFingerprint(value) {
 export function buildFounderEntitlement(paymentResult, {
   plan = 'FOUNDER_EARLY_ACCESS',
   priceUsd = '199.00',
-  brandLimit = 1,
-  activatedAt = new Date().toISOString()
+  brandLimit = 1
 } = {}) {
   if (!paymentResult || typeof paymentResult !== 'object') throw new Error('PAYMENT_RESULT_REQUIRED');
   if (!ELIGIBLE_PAYMENT_STATES.has(paymentResult.state)) throw new Error('PAYMENT_NOT_CONFIRMED');
@@ -27,7 +26,6 @@ export function buildFounderEntitlement(paymentResult, {
   }
   requireString(plan, 'ENTITLEMENT_PLAN_REQUIRED');
   requireString(priceUsd, 'ENTITLEMENT_PRICE_REQUIRED');
-  requireString(activatedAt, 'ENTITLEMENT_ACTIVATED_AT_REQUIRED');
   if (!Number.isInteger(brandLimit) || brandLimit !== 1) throw new Error('FOUNDER_BRAND_LIMIT_MUST_BE_ONE');
 
   return Object.freeze({
@@ -37,7 +35,6 @@ export function buildFounderEntitlement(paymentResult, {
     state: 'ACTIVE',
     brandLimit,
     priceUsd,
-    activatedAt,
     sourcePayment: Object.freeze({
       invoiceId: paymentResult.invoiceId,
       txHash: paymentResult.txHash,
@@ -59,14 +56,13 @@ export async function ensureDurableEntitlement(paymentResult, {
   entitlementStore,
   plan,
   priceUsd,
-  brandLimit,
-  activatedAt
+  brandLimit
 } = {}) {
   if (!entitlementStore || entitlementStore.persistence === 'PROCESS_LOCAL' || typeof entitlementStore.claimEntitlement !== 'function') {
     throw new Error('DURABLE_ENTITLEMENT_STORE_REQUIRED');
   }
 
-  const entitlement = buildFounderEntitlement(paymentResult, { plan, priceUsd, brandLimit, activatedAt });
+  const entitlement = buildFounderEntitlement(paymentResult, { plan, priceUsd, brandLimit });
   const identity = `${entitlement.tenantId}\u0000${entitlement.entitlementId}`;
   const fingerprint = stableFingerprint({
     tenantId: entitlement.tenantId,
