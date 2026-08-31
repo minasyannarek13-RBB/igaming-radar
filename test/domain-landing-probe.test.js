@@ -34,6 +34,25 @@ test('live Domain/Landing probe reports HEALTHY without revenue attribution or R
   assert.deepEqual(result.roiProof, { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null });
 });
 
+test('observed landing HTTP 5xx is BROKEN without inventing outage cause or revenue impact', async () => {
+  const result = await probeDomainLanding({
+    target: 'https://operator.example/landing',
+    geo: 'DE'
+  }, {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => response(500, '<html><body>Internal server error</body></html>'),
+    now: () => NOW
+  });
+
+  assert.equal(result.state, 'BROKEN');
+  assert.equal(result.scope, 'target-observed');
+  assert.equal(result.evidence.observations.http, 500);
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+  assert.equal(result.attribution, 'Not observable externally');
+  assert.equal(result.dependencyEdges, 0);
+  assert.deepEqual(result.roiProof, { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null });
+});
+
 test('configured critical asset failure degrades landing with exact observed asset evidence', async () => {
   const fetchImpl = async (url) => {
     if (url.href.includes('critical.js')) return response(503, 'unavailable');
