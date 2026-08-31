@@ -66,6 +66,29 @@ function paymentFingerprint(event) {
     .digest('hex');
 }
 
+function buildBase(event, eventClaim, persistence) {
+  return {
+    eventId: event.eventId,
+    tenantId: event.tenantId,
+    invoiceId: event.invoiceId,
+    txHash: event.txHash,
+    asset: event.asset,
+    amount: event.amount,
+    confirmations: event.confirmations,
+    idempotency: eventClaim,
+    paymentClaim: null,
+    persistence,
+    provenance: {
+      status: 'Observed',
+      source: 'SIGNED_PROVIDER_WEBHOOK',
+      chainObservation: 'Not observable externally'
+    },
+    savedGgr: null,
+    savedRevenue: null,
+    roiClaim: 'NOT_CLAIMED'
+  };
+}
+
 export function signCryptoWebhook(rawBody, { secret, timestamp }) {
   requireSecret(secret);
   requireRawBody(rawBody);
@@ -147,32 +170,56 @@ export function confirmCryptoPayment(input, {
   const eventClaim = idempotencyStore.claimEvent(event.eventId, eventFingerprint);
   if (eventClaim === 'CONFLICT') throw new Error('WEBHOOK_EVENT_REPLAY_CONFLICT');
 
-  const base = {
-    eventId: event.eventId,
-    tenantId: event.tenantId,
-    invoiceId: event.invoiceId,
-    txHash: event.txHash,
-    asset: event.asset,
-    amount: event.amount,
-    confirmations: event.confirmations,
-    idempotency: eventClaim,
-    paymentClaim: null,
-    persistence: idempotencyStore.persistence ?? 'UNKNOWN',
-    provenance: {
-      status: 'Observed',
-      source: 'SIGNED_PROVIDER_WEBHOOK',
-      chainObservation: 'Not observable externally'
-    },
-    savedGgr: null,
-    savedRevenue: null,
-    roiClaim: 'NOT_CLAIMED'
-  };
-
+  const base = buildBase(event, eventClaim, idempotencyStore.persistence ?? 'UNKNOWN');
   if (eventClaim === 'DUPLICATE') return { ...base, state: 'DUPLICATE_ACCEPTED', entitlementEligible: false };
   if (event.status !== 'CONFIRMED') return { ...base, state: 'PENDING', entitlementEligible: false };
   if (event.confirmations < minConfirmations) return { ...base, state: 'PENDING', entitlementEligible: false };
 
   const finalClaim = idempotencyStore.claimPayment(paymentKey(event), paymentFingerprint(event));
+  if (finalClaim === 'CONFLICT') throw new Error('PAYMENT_IDENTITY_CONFLICT');
+  if (finalClaim === 'DUPLICATE') {
+    return {
+      ...base,
+      paymentClaim: finalClaim,
+      state: 'DUPLICATE_PAYMENT_ACCEPTED',
+      entitlementEligible: false
+    };
+  }
+
+  return {
+    ...base,
+    paymentClaim: finalClaim,
+    state: 'CONFIRMED',
+    entitlementEligible: true
+  };
+}
+
+export async function confirmCryptoPaymentDurable(input, {
+  secret,
+  expectedPayment,
+  idempotencyStore,
+  now = Math.floor(Date.now() / 1000),
+  toleranceSeconds = DEFAULT_TOLERANCE_SECONDS,
+  minConfirmations = 1
+} = {}) {
+  if (!idempotencyStore || idempotencyStore.persistence === 'PROCESS_LOCAL' || typeof idempotencyStore.claimEvent !== 'function' || typeof idempotencyStore.claimPayment !== 'function') {
+    throw new Error('DURABLE_ATOMIC_IDEMPOTENCY_STORE_REQUIRED');
+  }
+  if (!Number.isInteger(minConfirmations) || minConfirmations < 1) throw new Error('INVALID_MIN_CONFIRMATIONS');
+
+  const event = verifyCryptoWebhook(input, { secret, now, toleranceSeconds });
+  assertExpectedPayment(event, expectedPayment);
+
+  const eventFingerprint = createHash('sha256').update(input.rawBody).digest('hex');
+  const eventClaim = await idempotencyStore.claimEvent(event.eventId, eventFingerprint);
+  if (eventClaim === 'CONFLICT') throw new Error('WEBHOOK_EVENT_REPLAY_CONFLICT');
+
+  const base = buildBase(event, eventClaim, idempotencyStore.persistence ?? 'UNKNOWN');
+  if (eventClaim === 'DUPLICATE') return { ...base, state: 'DUPLICATE_ACCEPTED', entitlementEligible: false };
+  if (event.status !== 'CONFIRMED') return { ...base, state: 'PENDING', entitlementEligible: false };
+  if (event.confirmations < minConfirmations) return { ...base, state: 'PENDING', entitlementEligible: false };
+
+  const finalClaim = await idempotencyStore.claimPayment(paymentKey(event), paymentFingerprint(event));
   if (finalClaim === 'CONFLICT') throw new Error('PAYMENT_IDENTITY_CONFLICT');
   if (finalClaim === 'DUPLICATE') {
     return {
