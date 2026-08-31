@@ -20,8 +20,11 @@ function hasAnyMarker(body, markers) {
 function classifyTransportError(error) {
   const message = String(error?.message || '').toLowerCase();
   if (message.includes('too many redirects')) return { redirect: 'loop' };
-  if (message.includes('redirect without location')) return { redirect: 'broken' };
-  if (message.includes('dns') || message.includes('resolution')) return { dns: 'fail' };
+  if (
+    message.includes('dns') ||
+    message.includes('resolution') ||
+    message.includes('non-public address')
+  ) return { dns: 'fail' };
   if (
     message.includes('certificate') ||
     message.includes('cert_') ||
@@ -39,7 +42,8 @@ async function readBoundedText(response) {
 
 async function probeCriticalAssets(assetUrls, transport) {
   const evidence = [];
-  let broken = false;
+  let observedBroken = false;
+  let observedHealthy = false;
 
   for (const assetUrl of assetUrls.slice(0, MAX_ASSETS)) {
     try {
@@ -54,9 +58,9 @@ async function probeCriticalAssets(assetUrls, transport) {
         state: ok ? 'HEALTHY' : 'BROKEN',
         provenance: 'Observed'
       });
-      if (!ok) broken = true;
+      if (ok) observedHealthy = true;
+      else observedBroken = true;
     } catch (error) {
-      broken = true;
       evidence.push({
         requestedUrl: assetUrl,
         state: 'NOT_OBSERVABLE',
@@ -66,7 +70,10 @@ async function probeCriticalAssets(assetUrls, transport) {
     }
   }
 
-  return { broken, evidence };
+  return {
+    state: observedBroken ? 'broken' : observedHealthy ? 'healthy' : 'not_observable',
+    evidence
+  };
 }
 
 export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = () => new Date() } = {}) {
@@ -75,12 +82,15 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   }
 
   const target = normalizeTarget(input.target.trim());
-  const geo = typeof input.geo === 'string' && input.geo.trim() ? input.geo.trim().toUpperCase().slice(0, 16) : 'UNKNOWN';
+  const geo = typeof input.geo === 'string' && input.geo.trim()
+    ? input.geo.trim().toUpperCase().slice(0, 16)
+    : 'UNKNOWN';
   const config = input.config && typeof input.config === 'object' ? input.config : {};
   const ctaMarkers = limitedStrings(config.ctaMarkers);
   const errorMarkers = limitedStrings(config.errorMarkers);
   const challengeMarkers = limitedStrings(config.challengeMarkers);
   const criticalAssetUrls = limitedStrings(config.criticalAssetUrls, MAX_ASSETS);
+  const controls = Array.isArray(input.controls) ? input.controls : [];
   const transport = { fetchImpl, lookupImpl };
   const observedAt = now().toISOString();
 
@@ -89,23 +99,21 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   try {
     ({ response, finalUrl } = await fetchPublicTarget(target, transport));
   } catch (error) {
-    const observations = {
-      probeContext: 'automated',
-      ...classifyTransportError(error)
-    };
+    const observations = { probeContext: 'automated', ...classifyTransportError(error) };
     const classified = classifyDomainLanding({
       geo,
       observations,
-      controls: Array.isArray(input.controls) ? input.controls : [],
+      controls,
       config: { ctaCritical: config.ctaCritical === true },
       evidenceClass: 'LIVE_OBSERVED'
     });
+    const ambiguousTransport = observations.transport === 'fail';
     return {
       target: target.href,
       observedAt,
-      state: classified.state,
-      scope: classified.scope,
-      cause: classified.cause,
+      state: ambiguousTransport ? 'NOT_OBSERVABLE' : classified.state,
+      scope: ambiguousTransport ? 'probe-transport-ambiguous' : classified.scope,
+      cause: 'NOT_OBSERVABLE',
       attribution: 'Not observable externally',
       dependencyEdges: 0,
       evidence: classified.evidence,
@@ -135,7 +143,7 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
 
   if (criticalAssetUrls.length > 0) {
     const assetResult = await probeCriticalAssets(criticalAssetUrls, transport);
-    observations.criticalAssets = assetResult.broken ? 'broken' : 'healthy';
+    observations.criticalAssets = assetResult.state;
     observations.criticalAssetEvidence = assetResult.evidence;
   }
 
@@ -146,7 +154,7 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   const classified = classifyDomainLanding({
     geo,
     observations,
-    controls: Array.isArray(input.controls) ? input.controls : [],
+    controls,
     config: { ctaCritical: config.ctaCritical === true },
     evidenceClass: 'LIVE_OBSERVED'
   });
