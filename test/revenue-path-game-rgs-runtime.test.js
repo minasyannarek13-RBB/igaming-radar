@@ -15,7 +15,7 @@ for (const fixture of gameRgsFixtures) {
     assert.ok(result.evidence.length > 0);
     for (const item of result.evidence) {
       assert.equal(item.provenance.status, 'Observed');
-      assert.equal(item.provenance.kind, 'fixture_or_authorized_probe');
+      assert.ok(['fixture_or_authorized_probe', 'authorized_runtime_probe'].includes(item.provenance.kind));
     }
   });
 }
@@ -51,17 +51,38 @@ test('repeated failed launch with healthy control is BROKEN without unsupported 
   assert.deepEqual(result.dependencyEdges, []);
 });
 
-test('validated cross-operator runtime correlation may create one guarded provider dependency edge', () => {
+test('provenance-backed cross-operator runtime correlation may create one guarded provider dependency edge', () => {
   const result = classifyGameRgsFlow({
     authorization: 'AUTHORIZED_SANDBOX',
     geo: 'FI',
     observations: { launch: 'failed', providerLabel: 'ExampleProvider', requestedConfidence: 'HIGH' },
     correlation: {
       provider: 'ExampleProvider',
-      runtimeHostCorroborated: true,
-      sameFailureSignature: true,
-      independentOperators: 2,
-      healthyControl: true
+      operatorEvidence: [
+        {
+          operatorId: 'operator-a',
+          runtimeHost: 'rgs-a.example-provider.test',
+          provider: 'ExampleProvider',
+          providerRuntimeBinding: 'OBSERVED_RUNTIME_HOST',
+          launch: 'failed',
+          failureSignature: 'launch-timeout-v1',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'probe-a-001' }
+        },
+        {
+          operatorId: 'operator-b',
+          runtimeHost: 'rgs-b.example-provider.test',
+          provider: 'ExampleProvider',
+          providerRuntimeBinding: 'OBSERVED_RUNTIME_HOST',
+          launch: 'failed',
+          failureSignature: 'launch-timeout-v1',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'probe-b-001' }
+        }
+      ],
+      healthyControlEvidence: {
+        controlId: 'provider-control',
+        state: 'HEALTHY',
+        provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'control-001' }
+      }
     }
   });
   assert.equal(result.state, 'BROKEN');
@@ -70,6 +91,83 @@ test('validated cross-operator runtime correlation may create one guarded provid
   assert.equal(result.confidence, 'GUARDED');
   assert.equal(result.dependencyEdges.length, 1);
   assert.equal(result.dependencyEdges[0].confidence, 'GUARDED');
+  assert.equal(result.evidence.filter((item) => item.observation === 'provider_runtime_failure').length, 2);
+  assert.equal(result.evidence.filter((item) => item.observation === 'healthy_control').length, 1);
+});
+
+test('release blocker #12: self-asserted correlation booleans cannot create a provider edge', () => {
+  const result = classifyGameRgsFlow({
+    authorization: 'AUTHORIZED_SANDBOX',
+    geo: 'FI',
+    observations: { launch: 'failed' },
+    correlation: {
+      provider: 'ArbitraryProvider',
+      runtimeHostCorroborated: true,
+      sameFailureSignature: true,
+      independentOperators: 2,
+      healthyControl: true
+    }
+  });
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+  assert.equal(result.dependency, null);
+  assert.deepEqual(result.dependencyEdges, []);
+  assert.equal(result.confidence, 'GUARDED');
+  assert.equal(result.evidence.some((item) => item.observation === 'correlation'), false);
+});
+
+test('same signature must be derived from records from distinct operators', () => {
+  const result = classifyGameRgsFlow({
+    authorization: 'AUTHORIZED_SANDBOX',
+    geo: 'FI',
+    observations: { launch: 'failed' },
+    correlation: {
+      provider: 'ExampleProvider',
+      operatorEvidence: [
+        {
+          operatorId: 'operator-a', runtimeHost: 'a.test', provider: 'ExampleProvider',
+          providerRuntimeBinding: 'OBSERVED_RUNTIME_HOST', launch: 'failed', failureSignature: 'sig-a',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'a-1' }
+        },
+        {
+          operatorId: 'operator-b', runtimeHost: 'b.test', provider: 'ExampleProvider',
+          providerRuntimeBinding: 'OBSERVED_RUNTIME_HOST', launch: 'failed', failureSignature: 'sig-b',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'b-1' }
+        }
+      ],
+      healthyControlEvidence: {
+        controlId: 'control', state: 'HEALTHY',
+        provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'c-1' }
+      }
+    }
+  });
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.deepEqual(result.dependencyEdges, []);
+});
+
+test('provider binding and healthy-control provenance are mandatory for attribution', () => {
+  const result = classifyGameRgsFlow({
+    authorization: 'AUTHORIZED_SANDBOX',
+    geo: 'FI',
+    observations: { launch: 'failed' },
+    correlation: {
+      provider: 'ExampleProvider',
+      operatorEvidence: [
+        {
+          operatorId: 'operator-a', runtimeHost: 'a.test', provider: 'ExampleProvider', launch: 'failed', failureSignature: 'sig',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'a-1' }
+        },
+        {
+          operatorId: 'operator-b', runtimeHost: 'b.test', provider: 'ExampleProvider', launch: 'failed', failureSignature: 'sig',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'b-1' }
+        }
+      ],
+      healthyControlEvidence: { controlId: 'control', state: 'HEALTHY' }
+    }
+  });
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.dependency, null);
+  assert.deepEqual(result.dependencyEdges, []);
 });
 
 test('requested HIGH confidence is ignored when cross-operator evidence is incomplete', () => {

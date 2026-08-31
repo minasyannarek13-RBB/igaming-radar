@@ -30,13 +30,48 @@ export const gameRgsFixtures = [
     observations: { launch: 'failed', providerLabel: 'ExampleProvider', requestedConfidence: 'HIGH' },
     correlation: {
       provider: 'ExampleProvider',
+      operatorEvidence: [
+        {
+          operatorId: 'operator-a',
+          runtimeHost: 'rgs-a.example-provider.test',
+          provider: 'ExampleProvider',
+          providerRuntimeBinding: 'OBSERVED_RUNTIME_HOST',
+          launch: 'failed',
+          failureSignature: 'launch-timeout-v1',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'probe-a-001' }
+        },
+        {
+          operatorId: 'operator-b',
+          runtimeHost: 'rgs-b.example-provider.test',
+          provider: 'ExampleProvider',
+          providerRuntimeBinding: 'OBSERVED_RUNTIME_HOST',
+          launch: 'failed',
+          failureSignature: 'launch-timeout-v1',
+          provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'probe-b-001' }
+        }
+      ],
+      healthyControlEvidence: {
+        controlId: 'control-provider-launch',
+        state: 'HEALTHY',
+        provenance: { kind: 'authorized_runtime_probe', status: 'Observed', source: 'control-001' }
+      }
+    },
+    controls: [{ type: 'independent-provider-control', state: 'HEALTHY' }],
+    expected: { state: 'BROKEN' }
+  },
+  {
+    id: 'self-asserted-correlation-booleans-do-not-create-edge',
+    authorization: 'AUTHORIZED_SANDBOX',
+    geo: 'FI',
+    observations: { launch: 'failed' },
+    correlation: {
+      provider: 'ArbitraryProvider',
       runtimeHostCorroborated: true,
       sameFailureSignature: true,
       independentOperators: 2,
       healthyControl: true
     },
-    controls: [{ type: 'independent-provider-control', state: 'HEALTHY' }],
-    expected: { state: 'BROKEN' }
+    expected: { state: 'NOT_OBSERVABLE' }
   },
   {
     id: 'marketing-provider-reference-does-not-create-edge',
