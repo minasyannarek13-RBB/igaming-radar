@@ -18,16 +18,30 @@ function classifyTransportError(error) {
   if (message.includes('certificate') || message.includes('cert_') || message.includes('tls') || message.includes('ssl') || message.includes('self signed')) return { dns: 'ok', tls: 'fail' };
   return { transport: 'fail' };
 }
-function failureEvidence(observations) {
+function criticalAssetFailureSignature(observations) {
+  if (observations?.criticalAssets !== 'broken' || !Array.isArray(observations?.criticalAssetEvidence)) return null;
+  const broken = observations.criticalAssetEvidence
+    .filter((item) => item?.state === 'BROKEN' && typeof item?.requestedUrl === 'string' && Number.isInteger(item?.httpStatus))
+    .map((item) => `${item.requestedUrl}:${item.httpStatus}`)
+    .sort();
+  return broken.length > 0 ? `asset:${broken.join('|')}` : null;
+}
+function failureEvidence(observations, context = {}) {
   if (observations?.dns === 'fail') return { signature: 'dns:fail', confirmationField: 'dnsConfirmations' };
   if (observations?.tls === 'fail') return { signature: 'tls:fail', confirmationField: 'tlsConfirmations' };
   if (Number.isInteger(observations?.http) && observations.http >= 500 && observations.http <= 599) return { signature: `http:${observations.http}`, confirmationField: 'http5xxConfirmations' };
   if ([403, 451].includes(observations?.http)) return { signature: `access:${observations.http}:${observations.page ?? 'unknown'}`, confirmationField: 'accessConfirmations' };
   if (observations?.http === 200 && observations?.page === 'error-template') return { signature: 'page:200:error-template', confirmationField: 'pageConfirmations' };
+  const assetSignature = criticalAssetFailureSignature(observations);
+  if (assetSignature) return { signature: assetSignature, confirmationField: 'criticalAssetConfirmations' };
+  if (observations?.cta === 'missing' && context.ctaCritical === true) {
+    const markers = limitedStrings(context.ctaMarkers).map((marker) => marker.toLowerCase()).sort();
+    return { signature: `cta:missing:${markers.join('|')}`, confirmationField: 'ctaConfirmations' };
+  }
   return null;
 }
-function applyTrustedSequentialCorroboration(observations, previous, { target, geo, observedAt }) {
-  const failure = failureEvidence(observations);
+function applyTrustedSequentialCorroboration(observations, previous, { target, geo, observedAt, ctaCritical = false, ctaMarkers = [] }) {
+  const failure = failureEvidence(observations, { ctaCritical, ctaMarkers });
   if (!failure) return { observations, failureSignature: null, failureConfirmations: 0 };
 
   const currentMs = new Date(observedAt).getTime();
@@ -72,7 +86,7 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   try { ({ response, finalUrl } = await fetchPublicTarget(target, transport)); }
   catch (error) {
     const rawObservations = { probeContext: 'automated', ...classifyTransportError(error) };
-    const corroboration = applyTrustedSequentialCorroboration(rawObservations, trustedPreviousObservation, { target: target.href, geo, observedAt });
+    const corroboration = applyTrustedSequentialCorroboration(rawObservations, trustedPreviousObservation, { target: target.href, geo, observedAt, ctaCritical: config.ctaCritical === true, ctaMarkers });
     const observations = corroboration.observations;
     const classified = classifyDomainLanding({ geo, observations, controls, config: { ctaCritical: config.ctaCritical === true }, evidenceClass: 'LIVE_OBSERVED' });
     const ambiguousTransport = observations.transport === 'fail';
@@ -85,7 +99,7 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   else rawObservations.page = 'content';
   if (criticalAssetUrls.length > 0) { const assetResult = await probeCriticalAssets(criticalAssetUrls, transport); rawObservations.criticalAssets = assetResult.state; rawObservations.criticalAssetEvidence = assetResult.evidence; }
   if (ctaMarkers.length > 0) rawObservations.cta = hasAnyMarker(body, ctaMarkers) ? 'present' : 'missing';
-  const corroboration = applyTrustedSequentialCorroboration(rawObservations, trustedPreviousObservation, { target: target.href, geo, observedAt });
+  const corroboration = applyTrustedSequentialCorroboration(rawObservations, trustedPreviousObservation, { target: target.href, geo, observedAt, ctaCritical: config.ctaCritical === true, ctaMarkers });
   const observations = corroboration.observations;
   const classified = classifyDomainLanding({ geo, observations, controls, config: { ctaCritical: config.ctaCritical === true }, evidenceClass: 'LIVE_OBSERVED' });
   return { target: target.href, finalUrl: finalUrl.href, observedAt, state: classified.state, scope: classified.scope, cause: classified.cause, attribution: classified.attributable ? 'Inferred' : 'Not observable externally', dependencyEdges: classified.dependencyEdges, evidence: classified.evidence, failureSignature: corroboration.failureSignature, failureConfirmations: corroboration.failureConfirmations, roiProof: { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null } };
