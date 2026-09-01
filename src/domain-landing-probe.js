@@ -90,7 +90,6 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   const errorMarkers = limitedStrings(config.errorMarkers);
   const challengeMarkers = limitedStrings(config.challengeMarkers);
   const criticalAssetUrls = limitedStrings(config.criticalAssetUrls, MAX_ASSETS);
-  const controls = Array.isArray(input.controls) ? input.controls : [];
   const transport = { fetchImpl, lookupImpl };
   const observedAt = now().toISOString();
 
@@ -103,7 +102,7 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
     const classified = classifyDomainLanding({
       geo,
       observations,
-      controls,
+      controls: [],
       config: { ctaCritical: config.ctaCritical === true },
       evidenceClass: 'LIVE_OBSERVED'
     });
@@ -154,7 +153,7 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   const classified = classifyDomainLanding({
     geo,
     observations,
-    controls,
+    controls: [],
     config: { ctaCritical: config.ctaCritical === true },
     evidenceClass: 'LIVE_OBSERVED'
   });
