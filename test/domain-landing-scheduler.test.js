@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeDomainLandingTarget } from '../src/domain-landing-target-store.js';
 import { runDomainLandingBatch } from '../src/domain-landing-scheduler.js';
+import { bindTrustedProbeVantage } from '../src/probe-vantage.js';
 
 test('normalizes durable target config without treating requested GEO as observed GEO', () => {
   const record = normalizeDomainLandingTarget({
@@ -27,12 +28,32 @@ test('rejects non-http target configuration', () => {
   }), /INVALID_TARGET_SCHEME/);
 });
 
-test('batch runs enabled targets through trusted vantage and records success/failure independently', async () => {
+test('trusted vantage matches only explicit RADAR_PROBE_GEO and keeps execution region separate', () => {
+  const matched = bindTrustedProbeVantage({ requestedGeo: 'DE', geo: 'DE' }, {
+    RADAR_PROBE_GEO: 'de',
+    VERCEL_REGION: 'fra1'
+  });
+  assert.equal(matched.requestedGeo, 'DE');
+  assert.equal(matched.trustedGeo, 'DE');
+  assert.equal(matched.executionRegion, 'FRA1');
+  assert.equal(matched.geoMatch, true);
+  assert.equal(matched.payload.geo, 'DE');
+
+  const unmatched = bindTrustedProbeVantage({ requestedGeo: 'US', geo: 'US' }, {
+    RADAR_PROBE_GEO: 'de',
+    VERCEL_REGION: 'fra1'
+  });
+  assert.equal(unmatched.trustedGeo, 'DE');
+  assert.equal(unmatched.geoMatch, false);
+});
+
+test('batch fails closed for requested GEO without matching trusted vantage and never probes it', async () => {
   const targets = [
     { id: 'a', scopeId: 'tenant-a', target: 'https://a.example/', requestedGeo: 'DE', enabled: true, recoveryConfirmations: 2 },
     { id: 'b', scopeId: 'tenant-a', target: 'https://b.example/', requestedGeo: 'US', enabled: true, recoveryConfirmations: 2 }
   ];
   const marks = [];
+  const probed = [];
   const targetStore = {
     async list() { return targets; },
     async markRun(id, value) { marks.push({ id, ...value }); }
@@ -41,17 +62,8 @@ test('batch runs enabled targets through trusted vantage and records success/fai
     async get() { return null; },
     async compareAndSet() { return { version: 1, lifecycle: {} }; }
   };
-  const bound = [];
-  const bindVantage = (input) => {
-    bound.push(input);
-    return {
-      requestedGeo: input.requestedGeo,
-      geoProvenance: 'TRUSTED_RUNTIME_VANTAGE',
-      payload: { ...input, geo: 'AM' }
-    };
-  };
   const runCycle = async (input) => {
-    if (input.target.includes('b.example')) throw new Error('synthetic_failure');
+    probed.push(input.target);
     return {
       geo: input.geo,
       lifecycle: { state: 'HEALTHY' },
@@ -63,7 +75,7 @@ test('batch runs enabled targets through trusted vantage and records success/fai
   const result = await runDomainLandingBatch({
     targetStore,
     lifecycleStore,
-    bindVantage,
+    env: { RADAR_PROBE_GEO: 'DE', VERCEL_REGION: 'FRA1' },
     runCycle,
     now: () => new Date('2026-09-01T03:05:00Z')
   });
@@ -72,9 +84,13 @@ test('batch runs enabled targets through trusted vantage and records success/fai
   assert.equal(result.succeeded, 1);
   assert.equal(result.failed, 1);
   assert.equal(result.results[0].requestedGeo, 'DE');
-  assert.equal(result.results[0].observedGeo, 'AM');
+  assert.equal(result.results[0].observedGeo, 'DE');
+  assert.equal(result.results[0].executionRegion, 'FRA1');
+  assert.equal(result.results[1].requestedGeo, 'US');
+  assert.equal(result.results[1].observedGeo, 'DE');
   assert.equal(result.results[1].state, 'NOT_OBSERVABLE');
+  assert.equal(result.results[1].error, 'GEO_VANTAGE_UNAVAILABLE');
+  assert.deepEqual(probed, ['https://a.example/']);
   assert.deepEqual(marks.map((x) => [x.id, x.status]), [['a', 'SUCCESS'], ['b', 'FAILED']]);
-  assert.equal(bound[0].requestedGeo, 'DE');
   assert.equal(result.roiProof.savedGgr, null);
 });
