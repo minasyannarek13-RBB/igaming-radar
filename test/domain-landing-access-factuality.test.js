@@ -24,7 +24,7 @@ test('automated unknown 403 cannot become BROKEN solely from a healthy mirror', 
   });
 
   assert.equal(result.state, 'NOT_OBSERVABLE');
-  assert.equal(result.scope, 'access-probe-ambiguous');
+  assert.equal(result.scope, 'geo-ambiguous');
   assert.equal(result.dependencyEdges, 0);
   assert.equal(result.cause, 'NOT_OBSERVABLE');
 });
@@ -45,7 +45,7 @@ test('automated unknown 451 cannot become geo-local BROKEN from healthy GEO cont
   });
 
   assert.equal(result.state, 'NOT_OBSERVABLE');
-  assert.equal(result.scope, 'access-probe-ambiguous');
+  assert.equal(result.scope, 'geo-ambiguous');
   assert.equal(result.dependencyEdges, 0);
 });
 
