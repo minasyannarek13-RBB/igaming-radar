@@ -56,7 +56,7 @@ test('single automated landing HTTP 5xx is NOT_OBSERVABLE until trusted sequenti
   assert.deepEqual(result.roiProof, { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null });
 });
 
-test('configured critical asset failure degrades landing with exact observed asset evidence', async () => {
+test('single configured critical asset failure remains NOT_OBSERVABLE with exact observed asset evidence', async () => {
   const fetchImpl = async (url) => {
     if (url.href.includes('critical.js')) return response(503, 'unavailable');
     return response(200, '<html>ok</html>');
@@ -68,15 +68,18 @@ test('configured critical asset failure degrades landing with exact observed ass
     config: { criticalAssetUrls: ['https://static.example/critical.js'] }
   }, { lookupImpl: publicLookup, fetchImpl, now: () => NOW });
 
-  assert.equal(result.state, 'DEGRADED');
-  assert.equal(result.scope, 'landing-assets');
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'landing-assets-probe-ambiguous');
   assert.equal(result.evidence.observations.criticalAssets, 'broken');
+  assert.equal(result.evidence.observations.criticalAssetConfirmations, 1);
   assert.equal(result.evidence.observations.criticalAssetEvidence[0].httpStatus, 503);
   assert.equal(result.evidence.observations.criticalAssetEvidence[0].provenance, 'Observed');
+  assert.equal(result.failureSignature, 'asset:https://static.example/critical.js:503');
+  assert.equal(result.failureConfirmations, 1);
   assert.equal(result.cause, 'NOT_OBSERVABLE');
 });
 
-test('critical CTA missing is DEGRADED only because operator configured it as critical', async () => {
+test('single critical CTA miss remains NOT_OBSERVABLE until trusted sequential corroboration', async () => {
   const result = await probeDomainLanding({
     target: 'https://operator.example/landing',
     geo: 'GB',
@@ -87,9 +90,11 @@ test('critical CTA missing is DEGRADED only because operator configured it as cr
     now: () => NOW
   });
 
-  assert.equal(result.state, 'DEGRADED');
-  assert.equal(result.scope, 'conversion-path');
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'conversion-path-probe-ambiguous');
   assert.equal(result.evidence.observations.cta, 'missing');
+  assert.equal(result.evidence.observations.ctaConfirmations, 1);
+  assert.equal(result.failureConfirmations, 1);
   assert.equal(result.attribution, 'Not observable externally');
 });
 
