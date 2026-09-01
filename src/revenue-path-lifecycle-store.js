@@ -46,7 +46,9 @@ export class RedisRestRevenuePathStore {
   async recordObservation(observation) {
     const { scopeId, target, geo, state, observedAt, geoProvenance } = observation ?? {};
     requireString(scopeId, 'SCOPE_ID_REQUIRED'); requireString(target, 'TARGET_REQUIRED'); requireString(geo, 'GEO_REQUIRED'); requireString(state, 'STATE_REQUIRED'); requireString(observedAt, 'OBSERVED_AT_REQUIRED'); requireString(geoProvenance, 'GEO_PROVENANCE_REQUIRED');
-    const record = { scopeId, target, geo, state, observedAt, geoProvenance, controlGroup: observation?.controlGroup ?? null };
+    const failureSignature = typeof observation?.failureSignature === 'string' && observation.failureSignature.length <= 160 ? observation.failureSignature : null;
+    const failureConfirmations = Number.isInteger(observation?.failureConfirmations) && observation.failureConfirmations >= 0 ? observation.failureConfirmations : 0;
+    const record = { scopeId, target, geo, state, observedAt, geoProvenance, controlGroup: observation?.controlGroup ?? null, failureSignature, failureConfirmations };
     await this.command(['HSET', this.observationKey(scopeId), this.observationField(target, geo), JSON.stringify(record)]);
     return record;
   }
