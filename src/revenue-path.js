@@ -37,7 +37,7 @@ export function classifyDomainLanding(input) {
       return {
         ...result,
         state: 'NOT_OBSERVABLE',
-        scope: observations.page === 'challenge' ? 'probe-ambiguous' : 'access-probe-ambiguous'
+        scope: observations.page === 'challenge' ? 'probe-ambiguous' : 'geo-ambiguous'
       };
     }
   }
