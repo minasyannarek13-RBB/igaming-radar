@@ -35,15 +35,11 @@ test('live Domain/Landing probe reports HEALTHY without revenue attribution or R
 });
 
 test('single automated landing HTTP 5xx is NOT_OBSERVABLE until trusted sequential corroboration', async () => {
-  const result = await probeDomainLanding({
-    target: 'https://operator.example/landing',
-    geo: 'DE'
-  }, {
+  const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'DE' }, {
     lookupImpl: publicLookup,
     fetchImpl: async () => response(500, '<html><body>Internal server error</body></html>'),
     now: () => NOW
   });
-
   assert.equal(result.state, 'NOT_OBSERVABLE');
   assert.equal(result.scope, 'http-5xx-probe-ambiguous');
   assert.equal(result.evidence.observations.http, 500);
@@ -57,17 +53,8 @@ test('single automated landing HTTP 5xx is NOT_OBSERVABLE until trusted sequenti
 });
 
 test('single configured critical asset failure remains NOT_OBSERVABLE with exact observed asset evidence', async () => {
-  const fetchImpl = async (url) => {
-    if (url.href.includes('critical.js')) return response(503, 'unavailable');
-    return response(200, '<html>ok</html>');
-  };
-
-  const result = await probeDomainLanding({
-    target: 'https://operator.example/landing',
-    geo: 'AM',
-    config: { criticalAssetUrls: ['https://static.example/critical.js'] }
-  }, { lookupImpl: publicLookup, fetchImpl, now: () => NOW });
-
+  const fetchImpl = async (url) => url.href.includes('critical.js') ? response(503, 'unavailable') : response(200, '<html>ok</html>');
+  const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'AM', config: { criticalAssetUrls: ['https://static.example/critical.js'] } }, { lookupImpl: publicLookup, fetchImpl, now: () => NOW });
   assert.equal(result.state, 'NOT_OBSERVABLE');
   assert.equal(result.scope, 'landing-assets-probe-ambiguous');
   assert.equal(result.evidence.observations.criticalAssets, 'broken');
@@ -80,16 +67,9 @@ test('single configured critical asset failure remains NOT_OBSERVABLE with exact
 });
 
 test('single critical CTA miss remains NOT_OBSERVABLE until trusted sequential corroboration', async () => {
-  const result = await probeDomainLanding({
-    target: 'https://operator.example/landing',
-    geo: 'GB',
-    config: { ctaCritical: true, ctaMarkers: ['id="deposit-now"'] }
-  }, {
-    lookupImpl: publicLookup,
-    fetchImpl: async () => response(200, '<html><body>Welcome</body></html>'),
-    now: () => NOW
+  const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'GB', config: { ctaCritical: true, ctaMarkers: ['id="deposit-now"'] } }, {
+    lookupImpl: publicLookup, fetchImpl: async () => response(200, '<html><body>Welcome</body></html>'), now: () => NOW
   });
-
   assert.equal(result.state, 'NOT_OBSERVABLE');
   assert.equal(result.scope, 'conversion-path-probe-ambiguous');
   assert.equal(result.evidence.observations.cta, 'missing');
@@ -99,34 +79,18 @@ test('single critical CTA miss remains NOT_OBSERVABLE until trusted sequential c
 });
 
 test('automated WAF challenge is NOT_OBSERVABLE rather than false downtime', async () => {
-  const result = await probeDomainLanding({
-    target: 'https://operator.example/landing',
-    geo: 'NL',
-    config: { challengeMarkers: ['verify you are human'] }
-  }, {
-    lookupImpl: publicLookup,
-    fetchImpl: async () => response(403, '<h1>Verify you are human</h1>'),
-    now: () => NOW
+  const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'NL', config: { challengeMarkers: ['verify you are human'] } }, {
+    lookupImpl: publicLookup, fetchImpl: async () => response(403, '<h1>Verify you are human</h1>'), now: () => NOW
   });
-
   assert.equal(result.state, 'NOT_OBSERVABLE');
   assert.equal(result.scope, 'probe-ambiguous');
   assert.equal(result.cause, 'NOT_OBSERVABLE');
 });
 
 test('caller-supplied healthy mirror control cannot promote HTTP 451 into BROKEN scope', async () => {
-  const result = await probeDomainLanding({
-    target: 'https://operator.example/landing',
-    geo: 'IAD1',
-    controls: [
-      { target: 'https://mirror.example', geo: 'IAD1', state: 'HEALTHY' }
-    ]
-  }, {
-    lookupImpl: publicLookup,
-    fetchImpl: async () => response(451, '<html><body>Unavailable</body></html>'),
-    now: () => NOW
+  const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'IAD1', controls: [{ target: 'https://mirror.example', geo: 'IAD1', state: 'HEALTHY' }] }, {
+    lookupImpl: publicLookup, fetchImpl: async () => response(451, '<html><body>Unavailable</body></html>'), now: () => NOW
   });
-
   assert.equal(result.state, 'NOT_OBSERVABLE');
   assert.equal(result.scope, 'geo-ambiguous');
   assert.equal(result.cause, 'NOT_OBSERVABLE');
@@ -135,19 +99,10 @@ test('caller-supplied healthy mirror control cannot promote HTTP 451 into BROKEN
 });
 
 test('caller-supplied cross-GEO healthy controls cannot promote HTTP 403 into geo-local BROKEN', async () => {
-  const result = await probeDomainLanding({
-    target: 'https://operator.example/landing',
-    geo: 'IAD1',
-    controls: [
-      { target: 'https://operator.example/landing', geo: 'FRA1', state: 'HEALTHY' },
-      { target: 'https://operator.example/landing', geo: 'GRU1', state: 'HEALTHY' }
-    ]
-  }, {
-    lookupImpl: publicLookup,
-    fetchImpl: async () => response(403, '<html><body>Unavailable</body></html>'),
-    now: () => NOW
-  });
-
+  const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'IAD1', controls: [
+    { target: 'https://operator.example/landing', geo: 'FRA1', state: 'HEALTHY' },
+    { target: 'https://operator.example/landing', geo: 'GRU1', state: 'HEALTHY' }
+  ] }, { lookupImpl: publicLookup, fetchImpl: async () => response(403, '<html><body>Unavailable</body></html>'), now: () => NOW });
   assert.equal(result.state, 'NOT_OBSERVABLE');
   assert.equal(result.scope, 'geo-ambiguous');
   assert.equal(result.cause, 'NOT_OBSERVABLE');
@@ -155,30 +110,28 @@ test('caller-supplied cross-GEO healthy controls cannot promote HTTP 403 into ge
   assert.equal(result.attribution, 'Not observable externally');
 });
 
-test('redirect loop is observed as BROKEN but does not invent blocking cause', async () => {
-  const result = await probeDomainLanding({
-    target: 'https://operator.example/a',
-    geo: 'DE'
-  }, {
+test('single automated redirect loop is NOT_OBSERVABLE and does not invent blocking cause', async () => {
+  const result = await probeDomainLanding({ target: 'https://operator.example/a', geo: 'DE' }, {
     lookupImpl: publicLookup,
     fetchImpl: async (url) => response(302, '', { location: url.pathname === '/a' ? '/b' : '/a' }),
     now: () => NOW
   });
-
-  assert.equal(result.state, 'BROKEN');
-  assert.equal(result.scope, 'target');
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'redirect-loop-probe-ambiguous');
+  assert.equal(result.failureSignature, 'redirect:loop');
+  assert.equal(result.failureConfirmations, 1);
+  assert.equal(result.evidence.observations.redirectConfirmations, 1);
   assert.equal(result.cause, 'NOT_OBSERVABLE');
   assert.equal(result.attribution, 'Not observable externally');
+  assert.equal(result.dependencyEdges, 0);
+  assert.deepEqual(result.roiProof, { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null });
 });
 
 test('private DNS resolution fails closed before fetch and cannot become an outage claim', async () => {
   let fetched = false;
   const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'DE' }, {
-    lookupImpl: async () => [{ address: '127.0.0.1', family: 4 }],
-    fetchImpl: async () => { fetched = true; return response(200, 'should not run'); },
-    now: () => NOW
+    lookupImpl: async () => [{ address: '127.0.0.1', family: 4 }], fetchImpl: async () => { fetched = true; return response(200, 'should not run'); }, now: () => NOW
   });
-
   assert.equal(fetched, false);
   assert.equal(result.state, 'NOT_OBSERVABLE');
   assert.equal(result.dependencyEdges, 0);
