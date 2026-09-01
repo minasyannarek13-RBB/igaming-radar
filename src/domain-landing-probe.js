@@ -29,6 +29,7 @@ function criticalAssetFailureSignature(observations) {
 function failureEvidence(observations, context = {}) {
   if (observations?.dns === 'fail') return { signature: 'dns:fail', confirmationField: 'dnsConfirmations' };
   if (observations?.tls === 'fail') return { signature: 'tls:fail', confirmationField: 'tlsConfirmations' };
+  if (observations?.redirect === 'loop') return { signature: 'redirect:loop', confirmationField: 'redirectConfirmations' };
   if (Number.isInteger(observations?.http) && observations.http >= 500 && observations.http <= 599) return { signature: `http:${observations.http}`, confirmationField: 'http5xxConfirmations' };
   if ([403, 451].includes(observations?.http)) return { signature: `access:${observations.http}:${observations.page ?? 'unknown'}`, confirmationField: 'accessConfirmations' };
   if (observations?.http === 200 && observations?.page === 'error-template') return { signature: 'page:200:error-template', confirmationField: 'pageConfirmations' };
