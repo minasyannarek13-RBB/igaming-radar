@@ -49,6 +49,7 @@ test('scheduled redirect loop requires two fresh trusted observations before BRO
   assert.equal(second.results[0].state, 'BROKEN');
   assert.equal(second.results[0].alertEvent, 'INCIDENT_OPEN');
   persisted = (await lifecycleStore.listObservations('tenant-a'))[0];
+  assert.equal(persisted.failureSignature, 'redirect:loop');
   assert.equal(persisted.failureConfirmations, 2);
   assert.equal(second.roiProof.status, 'NOT_CLAIMED');
   assert.equal(second.roiProof.savedGgr, null);
