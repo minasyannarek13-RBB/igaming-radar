@@ -1,0 +1,69 @@
+import { runDomainLandingCycle } from './domain-landing-cycle.js';
+import { bindTrustedProbeVantage } from './probe-vantage.js';
+
+export async function runDomainLandingBatch({
+  targetStore,
+  lifecycleStore,
+  env = process.env,
+  now = () => new Date(),
+  limit = 20,
+  runCycle = runDomainLandingCycle,
+  bindVantage = bindTrustedProbeVantage
+} = {}) {
+  if (!targetStore || typeof targetStore.list !== 'function' || typeof targetStore.markRun !== 'function') {
+    throw new Error('TARGET_STORE_REQUIRED');
+  }
+  if (!lifecycleStore || typeof lifecycleStore.get !== 'function' || typeof lifecycleStore.compareAndSet !== 'function') {
+    throw new Error('LIFECYCLE_STORE_REQUIRED');
+  }
+
+  const targets = await targetStore.list({ enabledOnly: true, limit });
+  const results = [];
+
+  for (const target of targets) {
+    const runAt = now().toISOString();
+    try {
+      const vantage = bindVantage({
+        scopeId: target.scopeId,
+        target: target.target,
+        geo: target.requestedGeo,
+        requestedGeo: target.requestedGeo,
+        recoveryConfirmations: target.recoveryConfirmations
+      }, env);
+      const result = await runCycle(vantage.payload, { lifecycleStore, store: lifecycleStore, now: () => new Date(runAt) });
+      await targetStore.markRun(target.id, { at: runAt, status: 'SUCCESS' });
+      results.push({
+        id: target.id,
+        target: target.target,
+        requestedGeo: vantage.requestedGeo,
+        observedGeo: result.geo,
+        geoProvenance: vantage.geoProvenance,
+        state: result.lifecycle?.state ?? result.probe?.state ?? 'NOT_OBSERVABLE',
+        alertEvent: result.alert?.event ?? null,
+        status: 'SUCCESS'
+      });
+    } catch (error) {
+      await targetStore.markRun(target.id, { at: runAt, status: 'FAILED' });
+      results.push({
+        id: target.id,
+        target: target.target,
+        requestedGeo: target.requestedGeo ?? 'UNKNOWN',
+        observedGeo: null,
+        geoProvenance: null,
+        state: 'NOT_OBSERVABLE',
+        alertEvent: null,
+        status: 'FAILED',
+        error: error?.message ?? 'domain_landing_batch_target_failed'
+      });
+    }
+  }
+
+  return {
+    contract: 'domain-landing-batch/v1',
+    attempted: results.length,
+    succeeded: results.filter((item) => item.status === 'SUCCESS').length,
+    failed: results.filter((item) => item.status === 'FAILED').length,
+    results,
+    roiProof: { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null }
+  };
+}
