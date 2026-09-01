@@ -9,12 +9,12 @@ export const domainLandingFixtures = Object.freeze({
     expected: { state: 'BROKEN', scope: 'global-observed' }
   },
   geoLocalFailure: {
-    geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 451, page: 'unavailable' },
+    geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 451, page: 'unavailable', accessConfirmations: 2 },
     controls: [{ geo: 'GB', state: 'HEALTHY' }, { geo: 'NL', state: 'HEALTHY' }], config: {},
     expected: { state: 'BROKEN', scope: 'geo-local-observed' }
   },
   blockedMirror: {
-    geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 403, page: 'unavailable' },
+    geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 403, page: 'unavailable', accessConfirmations: 2 },
     controls: [{ target: 'https://mirror.example/', geo: 'DE', state: 'HEALTHY' }], config: {},
     expected: { state: 'BROKEN', scope: 'mirror-only-observed' }
   },
