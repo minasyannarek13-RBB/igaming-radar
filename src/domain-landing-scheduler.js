@@ -28,7 +28,8 @@ export async function runDomainLandingBatch({
         target: target.target,
         geo: target.requestedGeo,
         requestedGeo: target.requestedGeo,
-        recoveryConfirmations: target.recoveryConfirmations
+        recoveryConfirmations: target.recoveryConfirmations,
+        config: target.config ?? {}
       }, env);
 
       if (!vantage.geoMatch) {
