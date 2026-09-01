@@ -11,14 +11,15 @@ export async function runDomainLandingCycle(input, {
   probeImpl = probeDomainLanding,
   now = () => new Date(),
   maxCasAttempts = 3,
-  trustedControls = []
+  trustedControls = [],
+  trustedPreviousObservation = null
 } = {}) {
   if (!store || typeof store.get !== 'function' || typeof store.compareAndSet !== 'function') throw new Error('DURABLE_STORE_REQUIRED');
   if (!input || typeof input.scopeId !== 'string' || input.scopeId.length === 0) throw Object.assign(new Error('scope_id_required'), { statusCode: 400 });
   if (typeof input.target !== 'string' || input.target.length === 0) throw Object.assign(new Error('target_required'), { statusCode: 400 });
 
   const observedAt = now().toISOString();
-  const probe = await probeImpl(input, { now: () => new Date(observedAt), trustedControls });
+  const probe = await probeImpl(input, { now: () => new Date(observedAt), trustedControls, trustedPreviousObservation });
   const geo = probe?.evidence?.geo ?? input.geo ?? 'UNKNOWN';
   const classified = toClassified(probe);
 
