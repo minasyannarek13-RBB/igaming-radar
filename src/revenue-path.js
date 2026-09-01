@@ -55,6 +55,16 @@ export function classifyDomainLanding(input) {
     return { ...result, state: 'BROKEN', scope: 'target' };
   }
 
+  if ([404, 410].includes(observations.http)) {
+    if (observations.probeContext === 'automated') {
+      const confirmations = Number(observations.httpMissingConfirmations ?? 0);
+      const corroborated = observations.httpMissingCorroborated === true || confirmations >= 2;
+      if (!corroborated) return { ...result, state: 'NOT_OBSERVABLE', scope: 'http-missing-probe-ambiguous' };
+      return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
+    }
+    return { ...result, state: 'BROKEN', scope: 'target-observed' };
+  }
+
   if (Number.isInteger(observations.http) && observations.http >= 500 && observations.http <= 599) {
     if (observations.probeContext === 'automated') {
       const confirmations = Number(observations.http5xxConfirmations ?? 0);
