@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { RedisRestRevenuePathStore } from '../src/revenue-path-lifecycle-store.js';
 import { runDomainLandingCycle } from '../src/domain-landing-cycle.js';
 
-test('redis store commits lifecycle and observation in one EVAL transaction', async () => {
+test('redis store commits lifecycle, latest observation and immutable history in one EVAL transaction', async () => {
   const commands = [];
   const fetchImpl = async (_url, options) => {
     commands.push(JSON.parse(options.body));
@@ -16,9 +16,11 @@ test('redis store commits lifecycle and observation in one EVAL transaction', as
 
   assert.equal(commands.length, 1);
   assert.equal(commands[0][0], 'EVAL');
-  assert.equal(commands[0][2], '2');
+  assert.equal(commands[0][2], '3');
   assert.match(commands[0][1], /redis\.call\('SET'/);
   assert.match(commands[0][1], /redis\.call\('HSET'/);
+  assert.match(commands[0][1], /redis\.call\('ZADD'/);
+  assert.match(commands[0][1], /redis\.call\('ZREMRANGEBYRANK'/);
   assert.equal(stored.version, 1);
   assert.equal(stored.observation.failureSignature, 'http:503');
   assert.equal(stored.observation.failureConfirmations, 2);
@@ -29,6 +31,51 @@ test('atomic store rejects observation key mismatch before any write', async () 
   const store = new RedisRestRevenuePathStore({ url: 'https://redis.example', token: 'test-token', fetchImpl: async () => { calls += 1; return { ok: true, async json() { return { result: 'STORED' }; } }; } });
   await assert.rejects(() => store.compareAndSetWithObservation('tenant-a', 'https://example.com/', 'DE', 0, { state: 'HEALTHY' }, { scopeId: 'tenant-b', target: 'https://example.com/', geo: 'DE', state: 'HEALTHY', observedAt: '2026-09-01T16:00:00.000Z', geoProvenance: 'TRUSTED_RUNTIME_VANTAGE' }), /OBSERVATION_KEY_MISMATCH/);
   assert.equal(calls, 0);
+});
+
+test('listObservations returns retained provenance history newest-first instead of one overwritten target/geo value', async () => {
+  const older = { scopeId: 'tenant-a', target: 'https://example.com/', geo: 'DE', state: 'NOT_OBSERVABLE', observedAt: '2026-09-01T16:00:00.000Z', geoProvenance: 'TRUSTED_RUNTIME_VANTAGE', controlGroup: null, failureSignature: 'http:503', failureConfirmations: 1 };
+  const newer = { ...older, state: 'BROKEN', observedAt: '2026-09-01T16:01:00.000Z', failureConfirmations: 2 };
+  const member = (record) => `${record.observedAt}:hash:${JSON.stringify(record)}`;
+  const commands = [];
+  const store = new RedisRestRevenuePathStore({
+    url: 'https://redis.example',
+    token: 'test-token',
+    fetchImpl: async (_url, options) => {
+      const command = JSON.parse(options.body);
+      commands.push(command);
+      return { ok: true, async json() { return { result: command[0] === 'ZREVRANGE' ? [member(newer), member(older)] : [] }; } };
+    }
+  });
+
+  const observations = await store.listObservations('tenant-a');
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0][0], 'ZREVRANGE');
+  assert.equal(observations.length, 2);
+  assert.equal(observations[0].state, 'BROKEN');
+  assert.equal(observations[0].failureConfirmations, 2);
+  assert.equal(observations[1].state, 'NOT_OBSERVABLE');
+  assert.equal(observations[1].failureConfirmations, 1);
+});
+
+test('listObservations falls back to legacy latest-observation hash when history is empty', async () => {
+  const legacy = { scopeId: 'tenant-a', target: 'https://example.com/', geo: 'DE', state: 'HEALTHY', observedAt: '2026-09-01T15:00:00.000Z', geoProvenance: 'TRUSTED_RUNTIME_VANTAGE' };
+  const commands = [];
+  const store = new RedisRestRevenuePathStore({
+    url: 'https://redis.example',
+    token: 'test-token',
+    fetchImpl: async (_url, options) => {
+      const command = JSON.parse(options.body);
+      commands.push(command);
+      const result = command[0] === 'ZREVRANGE' ? [] : ['field', JSON.stringify(legacy)];
+      return { ok: true, async json() { return { result }; } };
+    }
+  });
+
+  const observations = await store.listObservations('tenant-a');
+  assert.deepEqual(commands.map((command) => command[0]), ['ZREVRANGE', 'HGETALL']);
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].state, 'HEALTHY');
 });
 
 test('Domain Landing cycle uses atomic provenance path and never performs split CAS', async () => {
