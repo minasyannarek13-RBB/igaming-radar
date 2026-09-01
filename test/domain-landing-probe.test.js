@@ -106,6 +106,47 @@ test('automated WAF challenge is NOT_OBSERVABLE rather than false downtime', asy
   assert.equal(result.cause, 'NOT_OBSERVABLE');
 });
 
+test('caller-supplied healthy mirror control cannot promote HTTP 451 into BROKEN scope', async () => {
+  const result = await probeDomainLanding({
+    target: 'https://operator.example/landing',
+    geo: 'IAD1',
+    controls: [
+      { target: 'https://mirror.example', geo: 'IAD1', state: 'HEALTHY' }
+    ]
+  }, {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => response(451, '<html><body>Unavailable</body></html>'),
+    now: () => NOW
+  });
+
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'geo-ambiguous');
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+  assert.equal(result.dependencyEdges, 0);
+  assert.equal(result.attribution, 'Not observable externally');
+});
+
+test('caller-supplied cross-GEO healthy controls cannot promote HTTP 403 into geo-local BROKEN', async () => {
+  const result = await probeDomainLanding({
+    target: 'https://operator.example/landing',
+    geo: 'IAD1',
+    controls: [
+      { target: 'https://operator.example/landing', geo: 'FRA1', state: 'HEALTHY' },
+      { target: 'https://operator.example/landing', geo: 'GRU1', state: 'HEALTHY' }
+    ]
+  }, {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => response(403, '<html><body>Unavailable</body></html>'),
+    now: () => NOW
+  });
+
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'geo-ambiguous');
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+  assert.equal(result.dependencyEdges, 0);
+  assert.equal(result.attribution, 'Not observable externally');
+});
+
 test('redirect loop is observed as BROKEN but does not invent blocking cause', async () => {
   const result = await probeDomainLanding({
     target: 'https://operator.example/a',
