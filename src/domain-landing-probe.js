@@ -4,6 +4,7 @@ import { fetchPublicTarget, normalizeTarget } from './scanner.js';
 const MAX_BODY_BYTES = 250_000;
 const MAX_ASSETS = 5;
 const MAX_MARKERS = 8;
+const CORROBORATION_FRESHNESS_MS = 15 * 60 * 1000;
 
 function limitedStrings(values, limit = MAX_MARKERS) {
   if (!Array.isArray(values)) return [];
@@ -16,6 +17,32 @@ function classifyTransportError(error) {
   if (message.includes('dns') || message.includes('resolution') || message.includes('non-public address')) return { dns: 'fail' };
   if (message.includes('certificate') || message.includes('cert_') || message.includes('tls') || message.includes('ssl') || message.includes('self signed')) return { dns: 'ok', tls: 'fail' };
   return { transport: 'fail' };
+}
+function failureEvidence(observations) {
+  if (observations?.dns === 'fail') return { signature: 'dns:fail', confirmationField: 'dnsConfirmations' };
+  if (observations?.tls === 'fail') return { signature: 'tls:fail', confirmationField: 'tlsConfirmations' };
+  if ([403, 451].includes(observations?.http)) return { signature: `access:${observations.http}:${observations.page ?? 'unknown'}`, confirmationField: 'accessConfirmations' };
+  if (observations?.http === 200 && observations?.page === 'error-template') return { signature: 'page:200:error-template', confirmationField: 'pageConfirmations' };
+  return null;
+}
+function applyTrustedSequentialCorroboration(observations, previous, { target, geo, observedAt }) {
+  const failure = failureEvidence(observations);
+  if (!failure) return { observations, failureSignature: null, failureConfirmations: 0 };
+
+  const currentMs = new Date(observedAt).getTime();
+  const previousMs = new Date(previous?.observedAt ?? '').getTime();
+  const previousCount = Number.isInteger(previous?.failureConfirmations) && previous.failureConfirmations >= 1 ? previous.failureConfirmations : 1;
+  const previousIsTrusted = previous?.geoProvenance === 'TRUSTED_RUNTIME_VANTAGE';
+  const sameTargetGeo = previous?.target === target && previous?.geo === geo;
+  const sameFailure = previous?.failureSignature === failure.signature;
+  const freshSequential = Number.isFinite(currentMs) && Number.isFinite(previousMs) && currentMs > previousMs && currentMs - previousMs <= CORROBORATION_FRESHNESS_MS;
+  const confirmations = previousIsTrusted && sameTargetGeo && sameFailure && freshSequential ? previousCount + 1 : 1;
+
+  return {
+    observations: { ...observations, [failure.confirmationField]: confirmations },
+    failureSignature: failure.signature,
+    failureConfirmations: confirmations
+  };
 }
 async function readBoundedText(response) { const text = await response.text(); return String(text || '').slice(0, MAX_BODY_BYTES); }
 async function probeCriticalAssets(assetUrls, transport) {
@@ -32,7 +59,7 @@ async function probeCriticalAssets(assetUrls, transport) {
   return { state: observedBroken ? 'broken' : observedHealthy ? 'healthy' : 'not_observable', evidence };
 }
 
-export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = () => new Date(), trustedControls = [] } = {}) {
+export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = () => new Date(), trustedControls = [], trustedPreviousObservation = null } = {}) {
   if (!input || typeof input.target !== 'string' || input.target.trim() === '') throw Object.assign(new Error('target_required'), { statusCode: 400 });
   const target = normalizeTarget(input.target.trim());
   const geo = typeof input.geo === 'string' && input.geo.trim() ? input.geo.trim().toUpperCase().slice(0, 16) : 'UNKNOWN';
@@ -43,18 +70,22 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   let response; let finalUrl;
   try { ({ response, finalUrl } = await fetchPublicTarget(target, transport)); }
   catch (error) {
-    const observations = { probeContext: 'automated', ...classifyTransportError(error) };
+    const rawObservations = { probeContext: 'automated', ...classifyTransportError(error) };
+    const corroboration = applyTrustedSequentialCorroboration(rawObservations, trustedPreviousObservation, { target: target.href, geo, observedAt });
+    const observations = corroboration.observations;
     const classified = classifyDomainLanding({ geo, observations, controls, config: { ctaCritical: config.ctaCritical === true }, evidenceClass: 'LIVE_OBSERVED' });
     const ambiguousTransport = observations.transport === 'fail';
-    return { target: target.href, observedAt, state: ambiguousTransport ? 'NOT_OBSERVABLE' : classified.state, scope: ambiguousTransport ? 'probe-transport-ambiguous' : classified.scope, cause: 'NOT_OBSERVABLE', attribution: 'Not observable externally', dependencyEdges: 0, evidence: classified.evidence, transportError: String(error?.message || 'probe_failed').slice(0, 160), roiProof: { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null } };
+    return { target: target.href, observedAt, state: ambiguousTransport ? 'NOT_OBSERVABLE' : classified.state, scope: ambiguousTransport ? 'probe-transport-ambiguous' : classified.scope, cause: 'NOT_OBSERVABLE', attribution: 'Not observable externally', dependencyEdges: 0, evidence: classified.evidence, failureSignature: corroboration.failureSignature, failureConfirmations: corroboration.failureConfirmations, transportError: String(error?.message || 'probe_failed').slice(0, 160), roiProof: { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null } };
   }
   const body = await readBoundedText(response);
-  const observations = { probeContext: 'automated', dns: 'ok', tls: finalUrl.protocol === 'https:' ? 'ok' : 'not_applicable', http: response.status, redirect: finalUrl.href === target.href ? 'none' : 'followed' };
-  if ([403, 451].includes(response.status)) observations.page = challengeMarkers.length > 0 && hasAnyMarker(body, challengeMarkers) ? 'challenge' : 'unavailable';
-  else if (response.status === 200 && errorMarkers.length > 0 && hasAnyMarker(body, errorMarkers)) observations.page = 'error-template';
-  else observations.page = 'content';
-  if (criticalAssetUrls.length > 0) { const assetResult = await probeCriticalAssets(criticalAssetUrls, transport); observations.criticalAssets = assetResult.state; observations.criticalAssetEvidence = assetResult.evidence; }
-  if (ctaMarkers.length > 0) observations.cta = hasAnyMarker(body, ctaMarkers) ? 'present' : 'missing';
+  const rawObservations = { probeContext: 'automated', dns: 'ok', tls: finalUrl.protocol === 'https:' ? 'ok' : 'not_applicable', http: response.status, redirect: finalUrl.href === target.href ? 'none' : 'followed' };
+  if ([403, 451].includes(response.status)) rawObservations.page = challengeMarkers.length > 0 && hasAnyMarker(body, challengeMarkers) ? 'challenge' : 'unavailable';
+  else if (response.status === 200 && errorMarkers.length > 0 && hasAnyMarker(body, errorMarkers)) rawObservations.page = 'error-template';
+  else rawObservations.page = 'content';
+  if (criticalAssetUrls.length > 0) { const assetResult = await probeCriticalAssets(criticalAssetUrls, transport); rawObservations.criticalAssets = assetResult.state; rawObservations.criticalAssetEvidence = assetResult.evidence; }
+  if (ctaMarkers.length > 0) rawObservations.cta = hasAnyMarker(body, ctaMarkers) ? 'present' : 'missing';
+  const corroboration = applyTrustedSequentialCorroboration(rawObservations, trustedPreviousObservation, { target: target.href, geo, observedAt });
+  const observations = corroboration.observations;
   const classified = classifyDomainLanding({ geo, observations, controls, config: { ctaCritical: config.ctaCritical === true }, evidenceClass: 'LIVE_OBSERVED' });
-  return { target: target.href, finalUrl: finalUrl.href, observedAt, state: classified.state, scope: classified.scope, cause: classified.cause, attribution: classified.attributable ? 'Inferred' : 'Not observable externally', dependencyEdges: classified.dependencyEdges, evidence: classified.evidence, roiProof: { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null } };
+  return { target: target.href, finalUrl: finalUrl.href, observedAt, state: classified.state, scope: classified.scope, cause: classified.cause, attribution: classified.attributable ? 'Inferred' : 'Not observable externally', dependencyEdges: classified.dependencyEdges, evidence: classified.evidence, failureSignature: corroboration.failureSignature, failureConfirmations: corroboration.failureConfirmations, roiProof: { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null } };
 }
