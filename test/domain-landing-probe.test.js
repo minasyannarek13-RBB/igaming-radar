@@ -34,7 +34,7 @@ test('live Domain/Landing probe reports HEALTHY without revenue attribution or R
   assert.deepEqual(result.roiProof, { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null });
 });
 
-test('observed landing HTTP 5xx is BROKEN without inventing outage cause or revenue impact', async () => {
+test('single automated landing HTTP 5xx is NOT_OBSERVABLE until trusted sequential corroboration', async () => {
   const result = await probeDomainLanding({
     target: 'https://operator.example/landing',
     geo: 'DE'
@@ -44,9 +44,12 @@ test('observed landing HTTP 5xx is BROKEN without inventing outage cause or reve
     now: () => NOW
   });
 
-  assert.equal(result.state, 'BROKEN');
-  assert.equal(result.scope, 'target-observed');
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'http-5xx-probe-ambiguous');
   assert.equal(result.evidence.observations.http, 500);
+  assert.equal(result.evidence.observations.http5xxConfirmations, 1);
+  assert.equal(result.failureSignature, 'http:500');
+  assert.equal(result.failureConfirmations, 1);
   assert.equal(result.cause, 'NOT_OBSERVABLE');
   assert.equal(result.attribution, 'Not observable externally');
   assert.equal(result.dependencyEdges, 0);
