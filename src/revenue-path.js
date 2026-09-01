@@ -24,9 +24,6 @@ export function classifyDomainLanding(input) {
     }
   };
 
-  // Automated probes can be challenged or selectively blocked by bot/WAF/access
-  // controls. A single 403/451 is ambiguous evidence about player reachability.
-  // Healthy controls may scope an established failure, but must not create one.
   if (
     observations.probeContext === 'automated' &&
     [403, 451].includes(observations.http)
@@ -112,10 +109,20 @@ export function classifyDomainLanding(input) {
   }
 
   if (observations.criticalAssets === 'broken') {
+    if (observations.probeContext === 'automated') {
+      const confirmations = Number(observations.criticalAssetConfirmations ?? 0);
+      const corroborated = observations.criticalAssetCorroborated === true || confirmations >= 2;
+      if (!corroborated) return { ...result, state: 'NOT_OBSERVABLE', scope: 'landing-assets-probe-ambiguous' };
+    }
     return { ...result, state: 'DEGRADED', scope: 'landing-assets' };
   }
 
   if ((observations.cta === 'broken' || observations.cta === 'missing') && config.ctaCritical === true) {
+    if (observations.probeContext === 'automated') {
+      const confirmations = Number(observations.ctaConfirmations ?? 0);
+      const corroborated = observations.ctaCorroborated === true || confirmations >= 2;
+      if (!corroborated) return { ...result, state: 'NOT_OBSERVABLE', scope: 'conversion-path-probe-ambiguous' };
+    }
     return { ...result, state: 'DEGRADED', scope: 'conversion-path' };
   }
 
@@ -176,7 +183,6 @@ export function advanceRevenuePathLifecycle(previous, classified, observedAt, op
     };
   }
 
-  // NOT_OBSERVABLE cannot prove recovery and cannot establish an exposure bound.
   if (classified.state === 'NOT_OBSERVABLE') {
     return {
       ...next,
