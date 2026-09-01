@@ -87,6 +87,24 @@ test('automated WAF challenge is NOT_OBSERVABLE rather than false downtime', asy
   assert.equal(result.cause, 'NOT_OBSERVABLE');
 });
 
+test('HTTP 200 WAF challenge marker is NOT_OBSERVABLE and cannot become false HEALTHY', async () => {
+  const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'NL', config: { challengeMarkers: ['verify you are human'] } }, {
+    lookupImpl: publicLookup,
+    fetchImpl: async () => response(200, '<html><body><h1>Verify you are human</h1><p>Checking your browser</p></body></html>'),
+    now: () => NOW
+  });
+  assert.equal(result.state, 'NOT_OBSERVABLE');
+  assert.equal(result.scope, 'probe-ambiguous');
+  assert.equal(result.evidence.observations.http, 200);
+  assert.equal(result.evidence.observations.page, 'challenge');
+  assert.equal(result.cause, 'NOT_OBSERVABLE');
+  assert.equal(result.attribution, 'Not observable externally');
+  assert.equal(result.dependencyEdges, 0);
+  assert.equal(result.failureSignature, null);
+  assert.equal(result.failureConfirmations, 0);
+  assert.deepEqual(result.roiProof, { status: 'NOT_CLAIMED', savedGgr: null, savedRevenue: null });
+});
+
 test('caller-supplied healthy mirror control cannot promote HTTP 451 into BROKEN scope', async () => {
   const result = await probeDomainLanding({ target: 'https://operator.example/landing', geo: 'IAD1', controls: [{ target: 'https://mirror.example', geo: 'IAD1', state: 'HEALTHY' }] }, {
     lookupImpl: publicLookup, fetchImpl: async () => response(451, '<html><body>Unavailable</body></html>'), now: () => NOW
