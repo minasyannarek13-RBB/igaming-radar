@@ -51,7 +51,7 @@ test('Domain Landing cycle uses atomic provenance path and never performs split 
     scope: 'target-observed',
     cause: 'NONE',
     observedAt: '2026-09-01T16:00:00.000Z',
-    evidence: { geo: 'DE' }
+    evidence: { geo: 'DE', evidenceClass: 'SYNTHETIC_TEST', observations: {}, controls: [] }
   });
   const result = await runDomainLandingCycle({ scopeId: 'tenant-a', target: 'https://example.com/', geo: 'DE' }, {
     store,
