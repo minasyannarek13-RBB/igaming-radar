@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 
+const MAX_ASSETS = 5;
+const MAX_MARKERS = 8;
+
 function requireString(value, code) {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(code);
   return value.trim();
@@ -23,6 +26,40 @@ function normalizeGeo(value) {
   return requireString(value, 'INVALID_REQUESTED_GEO').toUpperCase();
 }
 
+function normalizeMarkerList(value, code) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_MARKERS) throw new Error(code);
+  return value.map((item) => {
+    const marker = requireString(item, code);
+    if (marker.length > 256) throw new Error(code);
+    return marker;
+  });
+}
+
+function normalizeCriticalAssetUrls(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_ASSETS) throw new Error('INVALID_CRITICAL_ASSET_URLS');
+  return value.map((item) => normalizeTarget(item));
+}
+
+function normalizeProbeConfig(value) {
+  if (value == null) return {
+    ctaMarkers: [],
+    errorMarkers: [],
+    challengeMarkers: [],
+    criticalAssetUrls: [],
+    ctaCritical: false
+  };
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_PROBE_CONFIG');
+  return {
+    ctaMarkers: normalizeMarkerList(value.ctaMarkers, 'INVALID_CTA_MARKERS'),
+    errorMarkers: normalizeMarkerList(value.errorMarkers, 'INVALID_ERROR_MARKERS'),
+    challengeMarkers: normalizeMarkerList(value.challengeMarkers, 'INVALID_CHALLENGE_MARKERS'),
+    criticalAssetUrls: normalizeCriticalAssetUrls(value.criticalAssetUrls),
+    ctaCritical: value.ctaCritical === true
+  };
+}
+
 function targetId(scopeId, target, requestedGeo) {
   return createHash('sha256').update(`${scopeId}\n${target}\n${requestedGeo}`).digest('hex');
 }
@@ -44,6 +81,7 @@ export function normalizeDomainLandingTarget(input, { now = () => new Date() } =
     requestedGeo,
     enabled: input.enabled !== false,
     recoveryConfirmations,
+    config: normalizeProbeConfig(input.config),
     updatedAt: observedAt,
     lastRunAt: input.lastRunAt ?? null,
     lastRunStatus: input.lastRunStatus ?? null
