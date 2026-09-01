@@ -25,10 +25,11 @@ export async function runDomainLandingBatch({
 
       const persistedObservations = typeof lifecycleStore.listObservations === 'function' ? await lifecycleStore.listObservations(target.scopeId) : [];
       const trustedControls = assembleTrustedDomainLandingControls({ observations: persistedObservations, scopeId: target.scopeId, target: target.target, geo: vantage.trustedGeo, controlGroup: target.config?.controlGroup ?? null, now: new Date(runAt) });
-      const result = await runCycle(vantage.payload, { lifecycleStore, store: lifecycleStore, now: () => new Date(runAt), trustedControls });
+      const trustedPreviousObservation = persistedObservations.find((observation) => observation?.scopeId === target.scopeId && observation?.target === target.target && observation?.geo === vantage.trustedGeo && observation?.geoProvenance === 'TRUSTED_RUNTIME_VANTAGE') ?? null;
+      const result = await runCycle(vantage.payload, { lifecycleStore, store: lifecycleStore, now: () => new Date(runAt), trustedControls, trustedPreviousObservation });
 
       if (typeof lifecycleStore.recordObservation === 'function' && result.probe?.observedAt && result.probe?.state) {
-        await lifecycleStore.recordObservation({ scopeId: target.scopeId, target: result.probe.target ?? target.target, geo: result.geo, state: result.probe.state, observedAt: result.probe.observedAt, geoProvenance: vantage.geoProvenance, controlGroup: target.config?.controlGroup ?? null });
+        await lifecycleStore.recordObservation({ scopeId: target.scopeId, target: result.probe.target ?? target.target, geo: result.geo, state: result.probe.state, observedAt: result.probe.observedAt, geoProvenance: vantage.geoProvenance, controlGroup: target.config?.controlGroup ?? null, failureSignature: result.probe.failureSignature ?? null, failureConfirmations: result.probe.failureConfirmations ?? 0 });
       }
 
       await targetStore.markRun(target.id, { at: runAt, status: 'SUCCESS' });
