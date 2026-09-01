@@ -30,6 +30,16 @@ export async function runDomainLandingBatch({
         requestedGeo: target.requestedGeo,
         recoveryConfirmations: target.recoveryConfirmations
       }, env);
+
+      if (!vantage.geoMatch) {
+        throw Object.assign(new Error('GEO_VANTAGE_UNAVAILABLE'), {
+          requestedGeo: vantage.requestedGeo,
+          trustedGeo: vantage.trustedGeo,
+          executionRegion: vantage.executionRegion,
+          geoProvenance: vantage.geoProvenance
+        });
+      }
+
       const result = await runCycle(vantage.payload, { lifecycleStore, store: lifecycleStore, now: () => new Date(runAt) });
       await targetStore.markRun(target.id, { at: runAt, status: 'SUCCESS' });
       results.push({
@@ -37,6 +47,7 @@ export async function runDomainLandingBatch({
         target: target.target,
         requestedGeo: vantage.requestedGeo,
         observedGeo: result.geo,
+        executionRegion: vantage.executionRegion,
         geoProvenance: vantage.geoProvenance,
         state: result.lifecycle?.state ?? result.probe?.state ?? 'NOT_OBSERVABLE',
         alertEvent: result.alert?.event ?? null,
@@ -47,9 +58,10 @@ export async function runDomainLandingBatch({
       results.push({
         id: target.id,
         target: target.target,
-        requestedGeo: target.requestedGeo ?? 'UNKNOWN',
-        observedGeo: null,
-        geoProvenance: null,
+        requestedGeo: error?.requestedGeo ?? target.requestedGeo ?? 'UNKNOWN',
+        observedGeo: error?.trustedGeo && error.trustedGeo !== 'UNKNOWN' ? error.trustedGeo : null,
+        executionRegion: error?.executionRegion ?? null,
+        geoProvenance: error?.geoProvenance ?? null,
         state: 'NOT_OBSERVABLE',
         alertEvent: null,
         status: 'FAILED',
