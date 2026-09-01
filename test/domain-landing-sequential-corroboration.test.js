@@ -50,7 +50,7 @@ test('two fresh independent scheduled DNS observations promote ambiguity to BROK
 
   const second = await runDomainLandingBatch({ targetStore, lifecycleStore, env: { RADAR_PROBE_GEO: 'DE', VERCEL_REGION: 'FRA1' }, runCycle: dnsFailureCycle, now: () => times[1] });
   assert.equal(second.results[0].state, 'BROKEN');
-  assert.equal(second.results[0].alertEvent, 'INCIDENT_OPENED');
+  assert.equal(second.results[0].alertEvent, 'INCIDENT_OPEN');
   persisted = (await lifecycleStore.listObservations('tenant-a'))[0];
   assert.equal(persisted.failureSignature, 'dns:fail');
   assert.equal(persisted.failureConfirmations, 2);
