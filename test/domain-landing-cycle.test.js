@@ -43,12 +43,12 @@ function probeSequence(states) {
   };
 }
 
-test('persists incident, requires healthy hysteresis, and reports final exposure duration', async () => {
+test('persists incident, keeps recovery hysteresis, and separates confirmation window from exposure bound', async () => {
   const store = new MemoryStore();
   const times = [
     new Date('2026-09-01T00:00:00Z'),
-    new Date('2026-09-01T00:05:00Z'),
-    new Date('2026-09-01T00:10:00Z')
+    new Date('2026-09-01T00:10:00Z'),
+    new Date('2026-09-01T00:20:00Z')
   ];
   let i = 0;
   const now = () => times[i++];
@@ -62,13 +62,19 @@ test('persists incident, requires healthy hysteresis, and reports final exposure
 
   const candidate = await runDomainLandingCycle(input, { store, probeImpl, now });
   assert.equal(candidate.lifecycle.incidentOpen, true);
+  assert.equal(candidate.lifecycle.recoveryCandidateAt, '2026-09-01T00:10:00.000Z');
+  assert.equal(candidate.lifecycle.observedExposureUpperBoundMs, 600000);
   assert.equal(candidate.alert, null);
 
   const recovered = await runDomainLandingCycle(input, { store, probeImpl, now });
   assert.equal(recovered.lifecycle.incidentOpen, false);
   assert.equal(recovered.lifecycle.state, 'HEALTHY');
-  assert.equal(recovered.lifecycle.exposureDurationMs, 600000);
+  assert.equal(recovered.lifecycle.incidentOpenDurationMs, 1200000);
+  assert.equal(recovered.lifecycle.observedExposureUpperBoundMs, 600000);
   assert.equal(recovered.alert.event, 'RECOVERY');
+  assert.equal(recovered.alert.incidentOpenDurationMs, 1200000);
+  assert.equal(recovered.alert.observedExposureUpperBoundMs, 600000);
+  assert.equal('exposureDurationMs' in recovered.alert, false);
   assert.equal(recovered.alert.attribution.dependencyEdges, 0);
 });
 
@@ -85,6 +91,7 @@ test('NOT_OBSERVABLE cannot prove recovery', async () => {
   assert.equal(ambiguous.lifecycle.incidentOpen, true);
   assert.equal(ambiguous.lifecycle.state, 'DEGRADED');
   assert.equal(ambiguous.lifecycle.recoveredAt, null);
+  assert.equal(ambiguous.lifecycle.observedExposureUpperBoundMs, null);
   assert.equal(ambiguous.alert, null);
 });
 

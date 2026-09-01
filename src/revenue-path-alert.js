@@ -13,6 +13,10 @@ function requireEvidence(classified) {
   return evidence;
 }
 
+function duration(value) {
+  return Math.max(0, Number(value ?? 0));
+}
+
 /**
  * Builds a transport-neutral alert payload from an already-classified Revenue Path
  * observation and persisted lifecycle. This function does not infer root cause,
@@ -72,8 +76,14 @@ export function buildRevenuePathAlert(input) {
       event: 'RECOVERY',
       state: 'HEALTHY',
       firstDetected: lifecycle.firstDetected ? iso(lifecycle.firstDetected, 'firstDetected') : null,
+      recoveryCandidateAt: lifecycle.recoveryCandidateAt
+        ? iso(lifecycle.recoveryCandidateAt, 'recoveryCandidateAt')
+        : null,
       recoveredAt,
-      exposureDurationMs: Math.max(0, Number(lifecycle.exposureDurationMs ?? 0))
+      incidentOpenDurationMs: duration(lifecycle.incidentOpenDurationMs),
+      observedExposureUpperBoundMs: lifecycle.observedExposureUpperBoundMs == null
+        ? null
+        : duration(lifecycle.observedExposureUpperBoundMs)
     };
   }
 
@@ -85,7 +95,13 @@ export function buildRevenuePathAlert(input) {
     ...base,
     event: firstDetected === observedAt ? 'INCIDENT_OPEN' : 'INCIDENT_UPDATE',
     firstDetected,
+    recoveryCandidateAt: lifecycle.recoveryCandidateAt
+      ? iso(lifecycle.recoveryCandidateAt, 'recoveryCandidateAt')
+      : null,
     recoveredAt: null,
-    exposureDurationMs: Math.max(0, Number(lifecycle.exposureDurationMs ?? 0))
+    incidentOpenDurationMs: duration(lifecycle.incidentOpenDurationMs),
+    observedExposureUpperBoundMs: lifecycle.observedExposureUpperBoundMs == null
+      ? null
+      : duration(lifecycle.observedExposureUpperBoundMs)
   };
 }

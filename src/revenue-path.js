@@ -35,49 +35,30 @@ export function classifyDomainLanding(input) {
   }
 
   if (observations.dns === 'fail') {
-    // A single resolver/probe failure is evidence of a failed observation, not
-    // evidence that the operator domain is globally or locally unreachable.
-    // BROKEN requires explicit corroboration or a multi-vantage observation.
     const confirmations = Number(observations.dnsConfirmations ?? 0);
     const corroborated = observations.dnsCorroborated === true || confirmations >= 2;
 
-    if (geo === 'MULTI') {
-      return { ...result, state: 'BROKEN', scope: 'global-observed' };
-    }
-
-    if (corroborated) {
-      return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
-    }
+    if (geo === 'MULTI') return { ...result, state: 'BROKEN', scope: 'global-observed' };
+    if (corroborated) return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
 
     const independentHealthyControls = controls.filter((control) => healthyControl(control, geo));
     if (observations.probeContext === 'automated' || independentHealthyControls.length > 0) {
       return { ...result, state: 'NOT_OBSERVABLE', scope: 'dns-probe-ambiguous' };
     }
-
     return { ...result, state: 'NOT_OBSERVABLE', scope: 'dns-unconfirmed' };
   }
 
   if (observations.tls === 'fail') {
-    // As with DNS, one automated TLS handshake failure may be caused by a
-    // transient/vantage-specific path, SNI/probe behavior, or address choice.
-    // Preserve the failed observation but only promote it to BROKEN when the
-    // failure is explicitly corroborated or genuinely multi-vantage.
     const confirmations = Number(observations.tlsConfirmations ?? 0);
     const corroborated = observations.tlsCorroborated === true || confirmations >= 2;
 
-    if (geo === 'MULTI') {
-      return { ...result, state: 'BROKEN', scope: 'global-observed' };
-    }
-
-    if (corroborated) {
-      return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
-    }
+    if (geo === 'MULTI') return { ...result, state: 'BROKEN', scope: 'global-observed' };
+    if (corroborated) return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
 
     const independentHealthyControls = controls.filter((control) => healthyControl(control, geo));
     if (observations.probeContext === 'automated' || independentHealthyControls.length > 0) {
       return { ...result, state: 'NOT_OBSERVABLE', scope: 'tls-probe-ambiguous' };
     }
-
     return { ...result, state: 'NOT_OBSERVABLE', scope: 'tls-unconfirmed' };
   }
 
@@ -85,36 +66,21 @@ export function classifyDomainLanding(input) {
     return { ...result, state: 'BROKEN', scope: 'target' };
   }
 
-  // A received 5xx is direct evidence that this landing request failed at the
-  // observed vantage. It is enough to mark the target observation BROKEN, but
-  // it does not establish a global/GEO outage or any infrastructure cause.
   if (Number.isInteger(observations.http) && observations.http >= 500 && observations.http <= 599) {
     return { ...result, state: 'BROKEN', scope: 'target-observed' };
   }
 
   if (observations.http === 200 && observations.page === 'error-template') {
-    // A soft-200 error/interstitial seen by one automated vantage can be caused
-    // by probe-specific edge/WAF/personalization behavior. Preserve the exact
-    // observation, but require explicit repeated/corroborated or genuinely
-    // multi-vantage evidence before opening a proven landing incident.
     const confirmations = Number(observations.pageConfirmations ?? 0);
     const corroborated = observations.pageCorroborated === true || confirmations >= 2;
 
-    if (geo === 'MULTI') {
-      return { ...result, state: 'BROKEN', scope: 'landing-global-observed' };
-    }
-
-    if (corroborated) {
-      return { ...result, state: 'BROKEN', scope: 'landing-corroborated' };
-    }
+    if (geo === 'MULTI') return { ...result, state: 'BROKEN', scope: 'landing-global-observed' };
+    if (corroborated) return { ...result, state: 'BROKEN', scope: 'landing-corroborated' };
 
     const independentHealthyControls = controls.filter((control) => healthyControl(control, geo));
     if (observations.probeContext === 'automated' || independentHealthyControls.length > 0) {
       return { ...result, state: 'NOT_OBSERVABLE', scope: 'soft-200-probe-ambiguous' };
     }
-
-    // Preserve the pre-existing explicit/manual/synthetic contract. The guard
-    // above is specifically for automated or contradicted single-vantage data.
     return { ...result, state: 'BROKEN', scope: 'landing' };
   }
 
@@ -122,15 +88,12 @@ export function classifyDomainLanding(input) {
     const mirrorHealthy = controls.some(
       (control) => control?.target && control.geo === geo && control.state === 'HEALTHY'
     );
-    if (mirrorHealthy) {
-      return { ...result, state: 'BROKEN', scope: 'mirror-only-observed' };
-    }
+    if (mirrorHealthy) return { ...result, state: 'BROKEN', scope: 'mirror-only-observed' };
 
     const independentGeoControls = controls.filter((control) => healthyControl(control, geo));
     if (independentGeoControls.length >= 2) {
       return { ...result, state: 'BROKEN', scope: 'geo-local-observed' };
     }
-
     return { ...result, state: 'NOT_OBSERVABLE', scope: 'geo-ambiguous' };
   }
 
@@ -138,14 +101,10 @@ export function classifyDomainLanding(input) {
     return { ...result, state: 'DEGRADED', scope: 'landing-assets' };
   }
 
-  if (observations.cta === 'broken' || observations.cta === 'missing') {
-    if (config.ctaCritical === true) {
-      return { ...result, state: 'DEGRADED', scope: 'conversion-path' };
-    }
+  if ((observations.cta === 'broken' || observations.cta === 'missing') && config.ctaCritical === true) {
+    return { ...result, state: 'DEGRADED', scope: 'conversion-path' };
   }
 
-  // Unrelated third-party failures are retained as evidence only. They do not
-  // create a revenue-path dependency edge or degrade the target by themselves.
   return result;
 }
 
@@ -158,7 +117,8 @@ export function initialRevenuePathLifecycle() {
     recoveryCandidateAt: null,
     healthyConfirmations: 0,
     recoveredAt: null,
-    exposureDurationMs: 0
+    incidentOpenDurationMs: 0,
+    observedExposureUpperBoundMs: null
   };
 }
 
@@ -169,34 +129,28 @@ export function advanceRevenuePathLifecycle(previous, classified, observedAt, op
 
   const recoveryConfirmations = Math.max(1, options.recoveryConfirmations ?? 2);
   const current = previous ?? initialRevenuePathLifecycle();
-  const lastObservedMs = current.lastObservedAt
-    ? new Date(current.lastObservedAt).getTime()
-    : null;
+  const lastObservedMs = current.lastObservedAt ? new Date(current.lastObservedAt).getTime() : null;
 
-  // Persisted lifecycle is an event-time state machine. Delayed observations
-  // must not move state backward, and equal timestamps are first-write-wins so
-  // retries/duplicates cannot alter recovery hysteresis or exposure duration.
-  if (Number.isFinite(lastObservedMs) && timestamp <= lastObservedMs) {
-    return current;
-  }
+  if (Number.isFinite(lastObservedMs) && timestamp <= lastObservedMs) return current;
 
   const next = { ...current, lastObservedAt: new Date(timestamp).toISOString() };
   const unhealthy = classified.state === 'BROKEN' || classified.state === 'DEGRADED';
 
   if (unhealthy) {
+    const firstDetected = current.incidentOpen && current.firstDetected
+      ? current.firstDetected
+      : new Date(timestamp).toISOString();
+    const firstDetectedMs = new Date(firstDetected).getTime();
     return {
       ...next,
       state: classified.state,
       incidentOpen: true,
-      firstDetected: current.incidentOpen && current.firstDetected
-        ? current.firstDetected
-        : new Date(timestamp).toISOString(),
+      firstDetected,
       recoveryCandidateAt: null,
       healthyConfirmations: 0,
       recoveredAt: null,
-      exposureDurationMs: current.incidentOpen && current.firstDetected
-        ? Math.max(0, timestamp - new Date(current.firstDetected).getTime())
-        : 0
+      incidentOpenDurationMs: Math.max(0, timestamp - firstDetectedMs),
+      observedExposureUpperBoundMs: null
     };
   }
 
@@ -208,23 +162,34 @@ export function advanceRevenuePathLifecycle(previous, classified, observedAt, op
     };
   }
 
-  // NOT_OBSERVABLE cannot prove recovery.
+  // NOT_OBSERVABLE cannot prove recovery and cannot establish an exposure bound.
   if (classified.state === 'NOT_OBSERVABLE') {
-    return { ...next, state: current.state, healthyConfirmations: 0, recoveryCandidateAt: null };
+    return {
+      ...next,
+      state: current.state,
+      healthyConfirmations: 0,
+      recoveryCandidateAt: null,
+      observedExposureUpperBoundMs: null
+    };
   }
 
   const confirmations = current.healthyConfirmations + 1;
   const recoveryCandidateAt = current.recoveryCandidateAt ?? new Date(timestamp).toISOString();
+  const firstDetectedMs = new Date(current.firstDetected).getTime();
+  const candidateMs = new Date(recoveryCandidateAt).getTime();
+  const observedExposureUpperBoundMs = Math.max(0, candidateMs - firstDetectedMs);
+
   if (confirmations < recoveryConfirmations) {
     return {
       ...next,
       state: current.state,
       healthyConfirmations: confirmations,
-      recoveryCandidateAt
+      recoveryCandidateAt,
+      incidentOpenDurationMs: Math.max(0, timestamp - firstDetectedMs),
+      observedExposureUpperBoundMs
     };
   }
 
-  const firstDetectedMs = new Date(current.firstDetected).getTime();
   return {
     ...next,
     state: 'HEALTHY',
@@ -233,6 +198,7 @@ export function advanceRevenuePathLifecycle(previous, classified, observedAt, op
     healthyConfirmations: confirmations,
     recoveryCandidateAt,
     recoveredAt: new Date(timestamp).toISOString(),
-    exposureDurationMs: Math.max(0, timestamp - firstDetectedMs)
+    incidentOpenDurationMs: Math.max(0, timestamp - firstDetectedMs),
+    observedExposureUpperBoundMs
   };
 }

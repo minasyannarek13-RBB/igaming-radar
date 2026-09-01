@@ -28,8 +28,10 @@ function openLifecycle(overrides = {}) {
     incidentOpen: true,
     firstDetected: '2026-08-31T00:00:00.000Z',
     lastObservedAt: '2026-08-31T00:00:00.000Z',
+    recoveryCandidateAt: null,
     recoveredAt: null,
-    exposureDurationMs: 0,
+    incidentOpenDurationMs: 0,
+    observedExposureUpperBoundMs: null,
     ...overrides
   };
 }
@@ -51,23 +53,26 @@ test('incident alert is factual, provenance-backed and does not claim saved GGR'
   assert.equal(payload.roiProof.status, 'NOT_CLAIMED');
   assert.equal(payload.roiProof.savedGgr, null);
   assert.equal(payload.roiProof.savedRevenue, null);
+  assert.equal('exposureDurationMs' in payload, false);
   assert.deepEqual(payload.evidence.observations, { http: 451, page: 'unavailable' });
 });
 
-test('repeated unhealthy observation becomes update and carries exposure duration', () => {
+test('repeated unhealthy observation becomes update and carries incident-open duration only', () => {
   const payload = buildRevenuePathAlert({
     target: 'https://example.test',
     classified: classified({ state: 'DEGRADED', scope: 'conversion-path' }),
     lifecycle: openLifecycle({
       state: 'DEGRADED',
       lastObservedAt: '2026-08-31T00:05:00.000Z',
-      exposureDurationMs: 300000
+      incidentOpenDurationMs: 300000
     }),
     observedAt: '2026-08-31T00:05:00.000Z'
   });
 
   assert.equal(payload.event, 'INCIDENT_UPDATE');
-  assert.equal(payload.exposureDurationMs, 300000);
+  assert.equal(payload.incidentOpenDurationMs, 300000);
+  assert.equal(payload.observedExposureUpperBoundMs, null);
+  assert.equal('exposureDurationMs' in payload, false);
 });
 
 test('NOT_OBSERVABLE observation cannot create an incident alert', () => {
@@ -85,7 +90,7 @@ test('NOT_OBSERVABLE observation cannot create an incident alert', () => {
   assert.equal(payload, null);
 });
 
-test('healthy observation emits recovery only at persisted recovery timestamp', () => {
+test('recovery separates confirmation duration from observed exposure upper bound', () => {
   const payload = buildRevenuePathAlert({
     target: 'https://example.test',
     classified: classified({
@@ -102,17 +107,22 @@ test('healthy observation emits recovery only at persisted recovery timestamp', 
       state: 'HEALTHY',
       incidentOpen: false,
       firstDetected: '2026-08-31T00:00:00.000Z',
-      lastObservedAt: '2026-08-31T00:12:00.000Z',
-      recoveredAt: '2026-08-31T00:12:00.000Z',
-      exposureDurationMs: 720000
+      lastObservedAt: '2026-08-31T00:20:00.000Z',
+      recoveryCandidateAt: '2026-08-31T00:10:00.000Z',
+      recoveredAt: '2026-08-31T00:20:00.000Z',
+      incidentOpenDurationMs: 1200000,
+      observedExposureUpperBoundMs: 600000
     },
-    observedAt: '2026-08-31T00:12:00.000Z'
+    observedAt: '2026-08-31T00:20:00.000Z'
   });
 
   assert.equal(payload.event, 'RECOVERY');
   assert.equal(payload.state, 'HEALTHY');
-  assert.equal(payload.recoveredAt, '2026-08-31T00:12:00.000Z');
-  assert.equal(payload.exposureDurationMs, 720000);
+  assert.equal(payload.recoveryCandidateAt, '2026-08-31T00:10:00.000Z');
+  assert.equal(payload.recoveredAt, '2026-08-31T00:20:00.000Z');
+  assert.equal(payload.incidentOpenDurationMs, 1200000);
+  assert.equal(payload.observedExposureUpperBoundMs, 600000);
+  assert.equal('exposureDurationMs' in payload, false);
   assert.equal(payload.roiProof.status, 'NOT_CLAIMED');
 });
 
