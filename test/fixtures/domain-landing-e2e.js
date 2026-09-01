@@ -18,6 +18,11 @@ export const domainLandingFixtures = Object.freeze({
     controls: [{ target: 'https://mirror.example/', geo: 'DE', state: 'HEALTHY' }], config: {},
     expected: { state: 'BROKEN', scope: 'mirror-only-observed' }
   },
+  ambiguousAccessBlock: {
+    geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 403, page: 'unavailable' },
+    controls: [{ target: 'https://mirror.example/', geo: 'DE', state: 'HEALTHY' }], config: {},
+    expected: { state: 'NOT_OBSERVABLE', scope: 'geo-ambiguous' }
+  },
   redirectLoop: {
     geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', redirect: 'loop' }, controls: [], config: {},
     expected: { state: 'BROKEN', scope: 'target' }
