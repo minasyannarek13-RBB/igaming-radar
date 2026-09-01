@@ -63,15 +63,14 @@ function normalizeObservation(observation) {
 
 function observationHistoryMember(record) {
   const serialized = JSON.stringify(record);
-  return `${record.observedAt}:${keyPart(serialized)}:${serialized}`;
+  return `v1:${keyPart(serialized)}:${serialized}`;
 }
 
 function parseObservationHistoryMember(member) {
   if (typeof member !== 'string') throw new Error('INVALID_OBSERVATION_RECORD');
-  const first = member.indexOf(':');
-  const second = member.indexOf(':', first + 1);
-  if (first < 0 || second < 0) throw new Error('INVALID_OBSERVATION_RECORD');
-  return member.slice(second + 1);
+  const jsonStart = member.indexOf('{');
+  if (jsonStart < 0) throw new Error('INVALID_OBSERVATION_RECORD');
+  return member.slice(jsonStart);
 }
 
 function parseObservation(raw) {
