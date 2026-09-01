@@ -14,8 +14,31 @@ redis.call('SET', KEYS[1], ARGV[2])
 return 'STORED'
 `;
 
+const CAS_WITH_OBSERVATION_SCRIPT = `
+local existing = redis.call('GET', KEYS[1])
+local currentVersion = 0
+if existing then
+  local decoded = cjson.decode(existing)
+  currentVersion = tonumber(decoded.version or 0)
+end
+if currentVersion ~= tonumber(ARGV[1]) then
+  return 'CONFLICT'
+end
+redis.call('SET', KEYS[1], ARGV[2])
+redis.call('HSET', KEYS[2], ARGV[3], ARGV[4])
+return 'STORED'
+`;
+
 function requireString(value, code) { if (typeof value !== 'string' || value.length === 0) throw new Error(code); }
 function keyPart(value) { return createHash('sha256').update(value).digest('hex'); }
+
+function normalizeObservation(observation) {
+  const { scopeId, target, geo, state, observedAt, geoProvenance } = observation ?? {};
+  requireString(scopeId, 'SCOPE_ID_REQUIRED'); requireString(target, 'TARGET_REQUIRED'); requireString(geo, 'GEO_REQUIRED'); requireString(state, 'STATE_REQUIRED'); requireString(observedAt, 'OBSERVED_AT_REQUIRED'); requireString(geoProvenance, 'GEO_PROVENANCE_REQUIRED');
+  const failureSignature = typeof observation?.failureSignature === 'string' && observation.failureSignature.length <= 160 ? observation.failureSignature : null;
+  const failureConfirmations = Number.isInteger(observation?.failureConfirmations) && observation.failureConfirmations >= 0 ? observation.failureConfirmations : 0;
+  return { scopeId, target, geo, state, observedAt, geoProvenance, controlGroup: observation?.controlGroup ?? null, failureSignature, failureConfirmations };
+}
 
 export class RedisRestRevenuePathStore {
   constructor({ url, token, fetchImpl = globalThis.fetch, prefix = 'radar:revenue-path' } = {}) {
@@ -43,13 +66,18 @@ export class RedisRestRevenuePathStore {
     if (!['STORED', 'CONFLICT'].includes(result)) throw new Error('INVALID_REVENUE_PATH_BACKEND_RESULT');
     return result === 'STORED' ? record : null;
   }
+  async compareAndSetWithObservation(scopeId, target, geo, expectedVersion, lifecycle, observation) {
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) throw new Error('INVALID_EXPECTED_VERSION');
+    const normalized = normalizeObservation(observation);
+    if (normalized.scopeId !== scopeId || normalized.target !== target || normalized.geo !== geo) throw new Error('OBSERVATION_KEY_MISMATCH');
+    const record = { version: expectedVersion + 1, lifecycle };
+    const result = await this.command(['EVAL', CAS_WITH_OBSERVATION_SCRIPT, '2', this.key(scopeId, target, geo), this.observationKey(scopeId), String(expectedVersion), JSON.stringify(record), this.observationField(target, geo), JSON.stringify(normalized)]);
+    if (!['STORED', 'CONFLICT'].includes(result)) throw new Error('INVALID_REVENUE_PATH_BACKEND_RESULT');
+    return result === 'STORED' ? { ...record, observation: normalized } : null;
+  }
   async recordObservation(observation) {
-    const { scopeId, target, geo, state, observedAt, geoProvenance } = observation ?? {};
-    requireString(scopeId, 'SCOPE_ID_REQUIRED'); requireString(target, 'TARGET_REQUIRED'); requireString(geo, 'GEO_REQUIRED'); requireString(state, 'STATE_REQUIRED'); requireString(observedAt, 'OBSERVED_AT_REQUIRED'); requireString(geoProvenance, 'GEO_PROVENANCE_REQUIRED');
-    const failureSignature = typeof observation?.failureSignature === 'string' && observation.failureSignature.length <= 160 ? observation.failureSignature : null;
-    const failureConfirmations = Number.isInteger(observation?.failureConfirmations) && observation.failureConfirmations >= 0 ? observation.failureConfirmations : 0;
-    const record = { scopeId, target, geo, state, observedAt, geoProvenance, controlGroup: observation?.controlGroup ?? null, failureSignature, failureConfirmations };
-    await this.command(['HSET', this.observationKey(scopeId), this.observationField(target, geo), JSON.stringify(record)]);
+    const record = normalizeObservation(observation);
+    await this.command(['HSET', this.observationKey(record.scopeId), this.observationField(record.target, record.geo), JSON.stringify(record)]);
     return record;
   }
   async listObservations(scopeId) {
