@@ -19,12 +19,14 @@ export function assembleTrustedDomainLandingControls({
   if (!Number.isFinite(nowMs) || !Number.isFinite(maxAgeMs) || maxAgeMs <= 0) return [];
 
   const normalizedGeo = typeof geo === 'string' ? geo.toUpperCase() : 'UNKNOWN';
-  return observations.flatMap((observation) => {
-    if (!observation || observation.scopeId !== scopeId) return [];
-    if (observation.state !== 'HEALTHY') return [];
-    if (observation.geoProvenance !== 'TRUSTED_RUNTIME_VANTAGE') return [];
-    if (typeof observation.geo !== 'string' || observation.geo === 'UNKNOWN') return [];
-    if (!validObservedAt(observation.observedAt, nowMs, maxAgeMs)) return [];
+  const independentControls = new Map();
+
+  for (const observation of observations) {
+    if (!observation || observation.scopeId !== scopeId) continue;
+    if (observation.state !== 'HEALTHY') continue;
+    if (observation.geoProvenance !== 'TRUSTED_RUNTIME_VANTAGE') continue;
+    if (typeof observation.geo !== 'string' || observation.geo === 'UNKNOWN') continue;
+    if (!validObservedAt(observation.observedAt, nowMs, maxAgeMs)) continue;
 
     const observedGeo = observation.geo.toUpperCase();
     const exactTargetOtherGeo = observation.target === target && observedGeo !== normalizedGeo;
@@ -33,15 +35,26 @@ export function assembleTrustedDomainLandingControls({
       observation.target !== target &&
       observedGeo === normalizedGeo;
 
-    if (!exactTargetOtherGeo && !sameGeoMirror) return [];
-    return [{
+    if (!exactTargetOtherGeo && !sameGeoMirror) continue;
+
+    const relation = exactTargetOtherGeo ? 'same-target-other-geo' : 'same-group-mirror';
+    const independenceKey = exactTargetOtherGeo
+      ? `${relation}:${observedGeo}`
+      : `${relation}:${observation.target}:${observedGeo}`;
+    const candidate = {
       target: observation.target,
       geo: observedGeo,
       state: 'HEALTHY',
       observedAt: observation.observedAt,
       provenance: 'Observed',
       geoProvenance: observation.geoProvenance,
-      relation: exactTargetOtherGeo ? 'same-target-other-geo' : 'same-group-mirror'
-    }];
-  });
+      relation
+    };
+    const current = independentControls.get(independenceKey);
+    if (!current || new Date(candidate.observedAt).getTime() > new Date(current.observedAt).getTime()) {
+      independentControls.set(independenceKey, candidate);
+    }
+  }
+
+  return [...independentControls.values()];
 }
