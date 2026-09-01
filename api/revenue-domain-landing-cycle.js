@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { runDomainLandingCycle } from '../src/domain-landing-cycle.js';
 import { RedisRestRevenuePathStore } from '../src/revenue-path-lifecycle-store.js';
+import { bindTrustedProbeVantage } from '../src/probe-vantage.js';
 
 const MAX_JSON_BYTES = 24_576;
 
@@ -48,13 +49,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    const payload = await readBody(req);
+    const input = await readBody(req);
+    const vantage = bindTrustedProbeVantage(input, process.env);
     const store = new RedisRestRevenuePathStore({
       url: process.env.REDIS_REST_URL,
       token: process.env.REDIS_REST_TOKEN
     });
-    const result = await runDomainLandingCycle(payload, { store });
-    return res.status(200).json(result);
+    const result = await runDomainLandingCycle(vantage.payload, { store });
+    return res.status(200).json({
+      ...result,
+      requestedGeo: vantage.requestedGeo,
+      geoProvenance: vantage.geoProvenance
+    });
   } catch (error) {
     const statusCode = Number(error?.statusCode) || 500;
     const safeError = statusCode >= 500 ? 'domain_landing_cycle_failed' : error.message;

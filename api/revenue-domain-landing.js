@@ -1,4 +1,5 @@
 import { probeDomainLanding } from '../src/domain-landing-probe.js';
+import { bindTrustedProbeVantage } from '../src/probe-vantage.js';
 
 const MAX_JSON_BYTES = 24_576;
 
@@ -37,8 +38,13 @@ export default async function handler(req, res) {
 
   try {
     const payload = await readBody(req);
-    const result = await probeDomainLanding(payload);
-    return res.status(200).json(result);
+    const vantage = bindTrustedProbeVantage(payload, process.env);
+    const result = await probeDomainLanding(vantage.payload);
+    return res.status(200).json({
+      ...result,
+      requestedGeo: vantage.requestedGeo,
+      geoProvenance: vantage.geoProvenance
+    });
   } catch (error) {
     const statusCode = Number(error?.statusCode) || 500;
     const safeError = statusCode >= 500 ? 'domain_landing_probe_failed' : error.message;
