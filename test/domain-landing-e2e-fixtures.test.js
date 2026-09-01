@@ -15,31 +15,37 @@ for (const [name, fixture] of Object.entries(domainLandingFixtures)) {
   });
 }
 
-test('Domain/Landing lifecycle requires healthy hysteresis and measures exposure to confirmed recovery', () => {
+test('Domain/Landing lifecycle keeps hysteresis and separates confirmed-open duration from exposure bound', () => {
   let lifecycle = initialRevenuePathLifecycle();
   lifecycle = advanceRevenuePathLifecycle(lifecycle, { state: 'BROKEN' }, '2026-08-31T18:00:00.000Z');
   assert.equal(lifecycle.incidentOpen, true);
   assert.equal(lifecycle.firstDetected, '2026-08-31T18:00:00.000Z');
-  assert.equal(lifecycle.exposureDurationMs, 0);
+  assert.equal(lifecycle.incidentOpenDurationMs, 0);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, null);
 
   lifecycle = advanceRevenuePathLifecycle(lifecycle, { state: 'NOT_OBSERVABLE' }, '2026-08-31T18:05:00.000Z');
   assert.equal(lifecycle.incidentOpen, true);
   assert.equal(lifecycle.state, 'BROKEN');
   assert.equal(lifecycle.recoveredAt, null);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, null);
 
   lifecycle = advanceRevenuePathLifecycle(lifecycle, { state: 'HEALTHY' }, '2026-08-31T18:10:00.000Z');
   assert.equal(lifecycle.incidentOpen, true);
   assert.equal(lifecycle.healthyConfirmations, 1);
   assert.equal(lifecycle.recoveredAt, null);
+  assert.equal(lifecycle.recoveryCandidateAt, '2026-08-31T18:10:00.000Z');
+  assert.equal(lifecycle.observedExposureUpperBoundMs, 10 * 60 * 1000);
 
   lifecycle = advanceRevenuePathLifecycle(lifecycle, { state: 'HEALTHY' }, '2026-08-31T18:15:00.000Z');
   assert.equal(lifecycle.incidentOpen, false);
   assert.equal(lifecycle.state, 'HEALTHY');
   assert.equal(lifecycle.recoveredAt, '2026-08-31T18:15:00.000Z');
-  assert.equal(lifecycle.exposureDurationMs, 15 * 60 * 1000);
+  assert.equal(lifecycle.incidentOpenDurationMs, 15 * 60 * 1000);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, 10 * 60 * 1000);
+  assert.equal('exposureDurationMs' in lifecycle, false);
 });
 
-test('delayed or duplicate observations cannot rewrite lifecycle/exposure', () => {
+test('delayed or duplicate observations cannot rewrite lifecycle timing', () => {
   let lifecycle = initialRevenuePathLifecycle();
   lifecycle = advanceRevenuePathLifecycle(lifecycle, { state: 'BROKEN' }, '2026-08-31T18:00:00.000Z');
   lifecycle = advanceRevenuePathLifecycle(lifecycle, { state: 'HEALTHY' }, '2026-08-31T18:10:00.000Z');
