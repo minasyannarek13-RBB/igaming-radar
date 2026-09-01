@@ -9,7 +9,14 @@ test('normalizes durable target config without treating requested GEO as observe
     scopeId: 'tenant-a',
     target: 'https://example.com/path#fragment',
     requestedGeo: 'de',
-    recoveryConfirmations: 3
+    recoveryConfirmations: 3,
+    config: {
+      ctaMarkers: ['Deposit', 'Play now'],
+      errorMarkers: ['temporarily unavailable'],
+      challengeMarkers: ['checking your browser'],
+      criticalAssetUrls: ['https://cdn.example.com/app.js#v1'],
+      ctaCritical: true
+    }
   }, { now: () => new Date('2026-09-01T03:00:00Z') });
 
   assert.equal(record.scopeId, 'tenant-a');
@@ -18,13 +25,26 @@ test('normalizes durable target config without treating requested GEO as observe
   assert.equal(record.recoveryConfirmations, 3);
   assert.equal(record.enabled, true);
   assert.equal(record.lastRunAt, null);
+  assert.deepEqual(record.config, {
+    ctaMarkers: ['Deposit', 'Play now'],
+    errorMarkers: ['temporarily unavailable'],
+    challengeMarkers: ['checking your browser'],
+    criticalAssetUrls: ['https://cdn.example.com/app.js'],
+    ctaCritical: true
+  });
   assert.match(record.id, /^[a-f0-9]{64}$/);
 });
 
-test('rejects non-http target configuration', () => {
+test('rejects non-http target and critical-asset configuration', () => {
   assert.throws(() => normalizeDomainLandingTarget({
     scopeId: 'tenant-a',
     target: 'file:///etc/passwd'
+  }), /INVALID_TARGET_SCHEME/);
+
+  assert.throws(() => normalizeDomainLandingTarget({
+    scopeId: 'tenant-a',
+    target: 'https://example.com/',
+    config: { criticalAssetUrls: ['file:///etc/passwd'] }
   }), /INVALID_TARGET_SCHEME/);
 });
 
@@ -47,10 +67,17 @@ test('trusted vantage matches only explicit RADAR_PROBE_GEO and keeps execution 
   assert.equal(unmatched.geoMatch, false);
 });
 
-test('batch fails closed for requested GEO without matching trusted vantage and never probes it', async () => {
+test('batch passes persisted probe config only through matching trusted vantage', async () => {
+  const config = {
+    ctaMarkers: ['Deposit'],
+    errorMarkers: ['temporarily unavailable'],
+    challengeMarkers: [],
+    criticalAssetUrls: ['https://cdn.example.com/app.js'],
+    ctaCritical: true
+  };
   const targets = [
-    { id: 'a', scopeId: 'tenant-a', target: 'https://a.example/', requestedGeo: 'DE', enabled: true, recoveryConfirmations: 2 },
-    { id: 'b', scopeId: 'tenant-a', target: 'https://b.example/', requestedGeo: 'US', enabled: true, recoveryConfirmations: 2 }
+    { id: 'a', scopeId: 'tenant-a', target: 'https://a.example/', requestedGeo: 'DE', enabled: true, recoveryConfirmations: 2, config },
+    { id: 'b', scopeId: 'tenant-a', target: 'https://b.example/', requestedGeo: 'US', enabled: true, recoveryConfirmations: 2, config }
   ];
   const marks = [];
   const probed = [];
@@ -63,7 +90,7 @@ test('batch fails closed for requested GEO without matching trusted vantage and 
     async compareAndSet() { return { version: 1, lifecycle: {} }; }
   };
   const runCycle = async (input) => {
-    probed.push(input.target);
+    probed.push({ target: input.target, config: input.config });
     return {
       geo: input.geo,
       lifecycle: { state: 'HEALTHY' },
@@ -90,7 +117,7 @@ test('batch fails closed for requested GEO without matching trusted vantage and 
   assert.equal(result.results[1].observedGeo, 'DE');
   assert.equal(result.results[1].state, 'NOT_OBSERVABLE');
   assert.equal(result.results[1].error, 'GEO_VANTAGE_UNAVAILABLE');
-  assert.deepEqual(probed, ['https://a.example/']);
+  assert.deepEqual(probed, [{ target: 'https://a.example/', config }]);
   assert.deepEqual(marks.map((x) => [x.id, x.status]), [['a', 'SUCCESS'], ['b', 'FAILED']]);
   assert.equal(result.roiProof.savedGgr, null);
 });
