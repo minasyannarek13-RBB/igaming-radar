@@ -15,6 +15,10 @@ export function classifyDomainLanding(input) {
     evidence: { geo, observations, controls, evidenceClass: input?.evidenceClass ?? 'SYNTHETIC_TEST' }
   };
 
+  if (observations.probeContext === 'automated' && observations.http === 200 && observations.page === 'challenge') {
+    return { ...result, state: 'NOT_OBSERVABLE', scope: 'probe-ambiguous' };
+  }
+
   if (observations.probeContext === 'automated' && [403, 451].includes(observations.http)) {
     const confirmations = Number(observations.accessConfirmations ?? 0);
     const corroborated = observations.accessCorroborated === true || confirmations >= 2;
