@@ -55,3 +55,27 @@ test('delayed or duplicate observations cannot rewrite lifecycle timing', () => 
   lifecycle = advanceRevenuePathLifecycle(lifecycle, { state: 'HEALTHY' }, '2026-08-31T18:09:00.000Z');
   assert.deepEqual(lifecycle, snapshot);
 });
+
+for (const http of [204, 205]) {
+  test(`automated configured landing HTTP ${http} fails closed and carries no attribution`, () => {
+    const result = classifyDomainLanding({
+      geo: 'FR',
+      evidenceClass: 'SYNTHETIC_TEST',
+      observations: {
+        probeContext: 'automated',
+        dns: 'ok',
+        tls: 'ok',
+        http,
+        redirect: 'none',
+        page: 'content'
+      }
+    });
+
+    assert.equal(result.state, 'NOT_OBSERVABLE');
+    assert.equal(result.scope, 'landing-empty-response');
+    assert.equal(result.attributable, false);
+    assert.equal(result.cause, 'NOT_OBSERVABLE');
+    assert.equal(result.dependencyEdges, 0);
+    assert.equal(result.evidence.evidenceClass, 'SYNTHETIC_TEST');
+  });
+}
