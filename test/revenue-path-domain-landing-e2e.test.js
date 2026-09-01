@@ -27,7 +27,7 @@ for (const fixture of domainLandingFixtures) {
   });
 }
 
-test('Domain/Landing incident -> healthy controls -> recovery preserves factual exposure duration', () => {
+test('Domain/Landing incident -> healthy controls -> recovery separates factual timing semantics', () => {
   const broken = classifyDomainLanding(domainLandingFixtures.find((fixture) => fixture.id === 'geo-local-failure'));
   const healthy = classifyDomainLanding(domainLandingFixtures.find((fixture) => fixture.id === 'healthy-control'));
 
@@ -49,17 +49,20 @@ test('Domain/Landing incident -> healthy controls -> recovery preserves factual 
   assert.equal(opened.roiProof.status, 'NOT_CLAIMED');
   assert.equal(opened.roiProof.savedGgr, null);
   assert.equal(opened.roiProof.savedRevenue, null);
+  assert.equal('exposureDurationMs' in opened, false);
 
   lifecycle = advanceRevenuePathLifecycle(lifecycle, healthy, '2026-08-31T10:05:00.000Z');
   assert.equal(lifecycle.incidentOpen, true);
   assert.equal(lifecycle.state, 'BROKEN');
   assert.equal(lifecycle.recoveredAt, null);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, 5 * 60 * 1000);
 
   lifecycle = advanceRevenuePathLifecycle(lifecycle, healthy, '2026-08-31T10:10:00.000Z');
   assert.equal(lifecycle.incidentOpen, false);
   assert.equal(lifecycle.state, 'HEALTHY');
   assert.equal(lifecycle.recoveredAt, '2026-08-31T10:10:00.000Z');
-  assert.equal(lifecycle.exposureDurationMs, 10 * 60 * 1000);
+  assert.equal(lifecycle.incidentOpenDurationMs, 10 * 60 * 1000);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, 5 * 60 * 1000);
 
   const recovery = buildRevenuePathAlert({
     classified: healthy,
@@ -68,7 +71,9 @@ test('Domain/Landing incident -> healthy controls -> recovery preserves factual 
     observedAt: '2026-08-31T10:10:00.000Z'
   });
   assert.equal(recovery.event, 'RECOVERY');
-  assert.equal(recovery.exposureDurationMs, 10 * 60 * 1000);
+  assert.equal(recovery.incidentOpenDurationMs, 10 * 60 * 1000);
+  assert.equal(recovery.observedExposureUpperBoundMs, 5 * 60 * 1000);
+  assert.equal('exposureDurationMs' in recovery, false);
   assert.equal(recovery.roiProof.status, 'NOT_CLAIMED');
 });
 
@@ -87,9 +92,10 @@ test('NOT_OBSERVABLE cannot close an open Domain/Landing incident', () => {
   assert.equal(lifecycle.state, 'BROKEN');
   assert.equal(lifecycle.recoveredAt, null);
   assert.equal(lifecycle.healthyConfirmations, 0);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, null);
 });
 
-test('delayed/duplicate observations cannot rewrite recovery or exposure duration', () => {
+test('delayed/duplicate observations cannot rewrite recovery timing semantics', () => {
   const broken = classifyDomainLanding(domainLandingFixtures.find((fixture) => fixture.id === 'redirect-loop'));
   const healthy = classifyDomainLanding(domainLandingFixtures.find((fixture) => fixture.id === 'healthy-control'));
 
@@ -107,5 +113,6 @@ test('delayed/duplicate observations cannot rewrite recovery or exposure duratio
   const recovered = lifecycle;
   lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-31T12:03:00.000Z');
   assert.deepEqual(lifecycle, recovered);
-  assert.equal(lifecycle.exposureDurationMs, 10 * 60 * 1000);
+  assert.equal(lifecycle.incidentOpenDurationMs, 10 * 60 * 1000);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, 5 * 60 * 1000);
 });

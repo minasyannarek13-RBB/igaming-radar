@@ -202,10 +202,11 @@ test('firstDetected remains stable across repeated failing probes', () => {
 
   assert.equal(lifecycle.firstDetected, '2026-08-30T10:00:00.000Z');
   assert.equal(lifecycle.incidentOpen, true);
-  assert.equal(lifecycle.exposureDurationMs, 5 * 60 * 1000);
+  assert.equal(lifecycle.incidentOpenDurationMs, 5 * 60 * 1000);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, null);
 });
 
-test('recovery requires healthy hysteresis and computes recovery/exposure duration', () => {
+test('recovery requires healthy hysteresis and separates confirmation duration from exposure bound', () => {
   const broken = classify('global-outage');
   const healthy = classify('healthy-control');
   let lifecycle = initialRevenuePathLifecycle();
@@ -214,12 +215,14 @@ test('recovery requires healthy hysteresis and computes recovery/exposure durati
   lifecycle = advanceRevenuePathLifecycle(lifecycle, healthy, '2026-08-30T10:10:00.000Z');
   assert.equal(lifecycle.incidentOpen, true);
   assert.equal(lifecycle.recoveredAt, null);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, 10 * 60 * 1000);
 
   lifecycle = advanceRevenuePathLifecycle(lifecycle, healthy, '2026-08-30T10:12:00.000Z');
   assert.equal(lifecycle.incidentOpen, false);
   assert.equal(lifecycle.state, 'HEALTHY');
   assert.equal(lifecycle.recoveredAt, '2026-08-30T10:12:00.000Z');
-  assert.equal(lifecycle.exposureDurationMs, 12 * 60 * 1000);
+  assert.equal(lifecycle.incidentOpenDurationMs, 12 * 60 * 1000);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, 10 * 60 * 1000);
 });
 
 test('NOT_OBSERVABLE does not count as recovery proof', () => {
@@ -234,9 +237,10 @@ test('NOT_OBSERVABLE does not count as recovery proof', () => {
   assert.equal(lifecycle.state, 'BROKEN');
   assert.equal(lifecycle.healthyConfirmations, 0);
   assert.equal(lifecycle.recoveredAt, null);
+  assert.equal(lifecycle.observedExposureUpperBoundMs, null);
 });
 
-test('delayed BROKEN cannot move lifecycle event-time or exposure backward', () => {
+test('delayed BROKEN cannot move lifecycle event-time or incident-open duration backward', () => {
   const broken = classify('global-outage');
   let lifecycle = initialRevenuePathLifecycle();
   lifecycle = advanceRevenuePathLifecycle(lifecycle, broken, '2026-08-30T10:00:00.000Z');
@@ -248,7 +252,7 @@ test('delayed BROKEN cannot move lifecycle event-time or exposure backward', () 
   assert.deepEqual(lifecycle, beforeDelayed);
   assert.equal(lifecycle.lastObservedAt, '2026-08-30T10:05:00.000Z');
   assert.equal(lifecycle.firstDetected, '2026-08-30T10:00:00.000Z');
-  assert.equal(lifecycle.exposureDurationMs, 5 * 60 * 1000);
+  assert.equal(lifecycle.incidentOpenDurationMs, 5 * 60 * 1000);
 });
 
 test('delayed HEALTHY cannot enter recovery hysteresis', () => {
