@@ -75,6 +75,12 @@ export function classifyDomainLanding(input) {
   }
 
   if (Number.isInteger(observations.http) && observations.http >= 500 && observations.http <= 599) {
+    if (observations.probeContext === 'automated') {
+      const confirmations = Number(observations.http5xxConfirmations ?? 0);
+      const corroborated = observations.http5xxCorroborated === true || confirmations >= 2;
+      if (!corroborated) return { ...result, state: 'NOT_OBSERVABLE', scope: 'http-5xx-probe-ambiguous' };
+      return { ...result, state: 'BROKEN', scope: 'target-corroborated' };
+    }
     return { ...result, state: 'BROKEN', scope: 'target-observed' };
   }
 
