@@ -19,6 +19,10 @@ export function classifyDomainLanding(input) {
     return { ...result, state: 'NOT_OBSERVABLE', scope: 'probe-ambiguous' };
   }
 
+  if (observations.probeContext === 'automated' && observations.http === 429) {
+    return { ...result, state: 'NOT_OBSERVABLE', scope: 'probe-rate-limited' };
+  }
+
   if (observations.probeContext === 'automated' && [403, 451].includes(observations.http)) {
     const confirmations = Number(observations.accessConfirmations ?? 0);
     const corroborated = observations.accessCorroborated === true || confirmations >= 2;
