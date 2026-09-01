@@ -24,8 +24,8 @@ export const domainLandingFixtures = Object.freeze({
     expected: { state: 'NOT_OBSERVABLE', scope: 'geo-ambiguous' }
   },
   redirectLoop: {
-    geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', redirect: 'loop' }, controls: [], config: {},
-    expected: { state: 'BROKEN', scope: 'target' }
+    geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', redirect: 'loop', redirectConfirmations: 2 }, controls: [], config: {},
+    expected: { state: 'BROKEN', scope: 'target-corroborated' }
   },
   soft200SingleProbe: {
     geo: 'DE', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 200, page: 'error-template' }, controls: [], config: {},
