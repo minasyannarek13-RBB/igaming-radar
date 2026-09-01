@@ -24,14 +24,22 @@ export function classifyDomainLanding(input) {
     }
   };
 
-  // Automated probes can be challenged by bot/WAF controls. This is ambiguous
-  // evidence about player reachability and must not be promoted to an outage.
+  // Automated probes can be challenged or selectively blocked by bot/WAF/access
+  // controls. A single 403/451 is ambiguous evidence about player reachability.
+  // Healthy controls may scope an established failure, but must not create one.
   if (
     observations.probeContext === 'automated' &&
-    observations.http === 403 &&
-    observations.page === 'challenge'
+    [403, 451].includes(observations.http)
   ) {
-    return { ...result, state: 'NOT_OBSERVABLE', scope: 'probe-ambiguous' };
+    const confirmations = Number(observations.accessConfirmations ?? 0);
+    const corroborated = observations.accessCorroborated === true || confirmations >= 2;
+    if (!corroborated) {
+      return {
+        ...result,
+        state: 'NOT_OBSERVABLE',
+        scope: observations.page === 'challenge' ? 'probe-ambiguous' : 'access-probe-ambiguous'
+      };
+    }
   }
 
   if (observations.dns === 'fail') {
