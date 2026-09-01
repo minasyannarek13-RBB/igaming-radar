@@ -42,13 +42,21 @@ function normalizeCriticalAssetUrls(value) {
   return value.map((item) => normalizeTarget(item));
 }
 
+function normalizeControlGroup(value) {
+  if (value == null || value === '') return null;
+  const group = requireString(value, 'INVALID_CONTROL_GROUP');
+  if (group.length > 128) throw new Error('INVALID_CONTROL_GROUP');
+  return group;
+}
+
 function normalizeProbeConfig(value) {
   if (value == null) return {
     ctaMarkers: [],
     errorMarkers: [],
     challengeMarkers: [],
     criticalAssetUrls: [],
-    ctaCritical: false
+    ctaCritical: false,
+    controlGroup: null
   };
   if (typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_PROBE_CONFIG');
   return {
@@ -56,7 +64,8 @@ function normalizeProbeConfig(value) {
     errorMarkers: normalizeMarkerList(value.errorMarkers, 'INVALID_ERROR_MARKERS'),
     challengeMarkers: normalizeMarkerList(value.challengeMarkers, 'INVALID_CHALLENGE_MARKERS'),
     criticalAssetUrls: normalizeCriticalAssetUrls(value.criticalAssetUrls),
-    ctaCritical: value.ctaCritical === true
+    ctaCritical: value.ctaCritical === true,
+    controlGroup: normalizeControlGroup(value.controlGroup)
   };
 }
 
