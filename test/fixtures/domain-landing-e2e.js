@@ -32,7 +32,7 @@ export const domainLandingFixtures = Object.freeze({
     expected: { state: 'NOT_OBSERVABLE', scope: 'soft-200-probe-ambiguous' }
   },
   brokenCriticalCta: {
-    geo: 'GB', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 200, page: 'content', cta: 'missing' }, controls: [], config: { ctaCritical: true },
+    geo: 'GB', observations: { probeContext: 'automated', dns: 'ok', tls: 'ok', http: 200, page: 'content', cta: 'missing', ctaConfirmations: 2 }, controls: [], config: { ctaCritical: true },
     expected: { state: 'DEGRADED', scope: 'conversion-path' }
   },
   analyticsCdnNoise: {
