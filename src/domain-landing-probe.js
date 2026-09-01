@@ -95,8 +95,9 @@ export async function probeDomainLanding(input, { fetchImpl, lookupImpl, now = (
   }
   const body = await readBoundedText(response);
   const rawObservations = { probeContext: 'automated', dns: 'ok', tls: finalUrl.protocol === 'https:' ? 'ok' : 'not_applicable', http: response.status, redirect: finalUrl.href === target.href ? 'none' : 'followed' };
-  if ([403, 451].includes(response.status)) rawObservations.page = challengeMarkers.length > 0 && hasAnyMarker(body, challengeMarkers) ? 'challenge' : 'unavailable';
+  if (challengeMarkers.length > 0 && hasAnyMarker(body, challengeMarkers)) rawObservations.page = 'challenge';
   else if (response.status === 200 && errorMarkers.length > 0 && hasAnyMarker(body, errorMarkers)) rawObservations.page = 'error-template';
+  else if ([403, 451].includes(response.status)) rawObservations.page = 'unavailable';
   else rawObservations.page = 'content';
   if (criticalAssetUrls.length > 0) { const assetResult = await probeCriticalAssets(criticalAssetUrls, transport); rawObservations.criticalAssets = assetResult.state; rawObservations.criticalAssetEvidence = assetResult.evidence; }
   if (ctaMarkers.length > 0) rawObservations.cta = hasAnyMarker(body, ctaMarkers) ? 'present' : 'missing';
