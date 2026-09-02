@@ -33,7 +33,8 @@ export function correlateAndAttribute(observations, { windowMs = 5 * 60_000 } = 
     else if (operators.length >= 2 && evidenceIds.length >= 2 && unhealthyControls.length === 0) confidence = CONFIDENCE.MEDIUM;
     candidates.push({ dependencyId, affectedOperators: operators, evidenceIds, provenanceFamilies, healthyControlCount: healthyControls.length, unhealthyControlCount: unhealthyControls.length, competingDependencyIds: competing, confidence });
   }
-  return { candidates: candidates.sort((a,b) => ({HIGH:3,MEDIUM:2,LOW:1}[b.confidence]-({HIGH:3,MEDIUM:2,LOW:1}[a.confidence])) };
+  const rank = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+  return { candidates: candidates.sort((a, b) => rank[b.confidence] - rank[a.confidence]) };
 }
 
 export { CONFIDENCE };
