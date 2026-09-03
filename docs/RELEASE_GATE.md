@@ -30,6 +30,7 @@ This file is the single source of truth for Founder Early Access readiness.
 - 2026-09-03 canonical-head validation: GitHub Actions CI run `33694749287` for commit `83b3da5715393d9bb837fba140c643eb76a877c5` completed successfully.
 - 2026-09-03 latest canonical-head validation: GitHub Actions CI run `33699087611` for commit `122143ceb94a497466b3f2a3014cd50649045413` completed successfully.
 - 2026-09-03 current canonical-head validation: GitHub Actions CI run `33707438144` for commit `c01b43aa0daf26c84694be2a1dd9115a7367d0d4` completed successfully. The canonical main head therefore remains green across the release-gating correlation, attribution and historical-regression suites.
+- 2026-09-03 canonical-head revalidation: GitHub Actions CI run `33710875993` for commit `4861783d91805038a4dfc6ae2be1fa04920cb9d9` completed successfully on first attempt. No regression was introduced after the prior release-evidence update.
 
 ## Definition of useful scan
 A scan is useful only when it produces evidence that can materially help an operator understand dependency topology, an incident, degradation, or likely attribution. A technically successful request with no useful intelligence does not count as useful.
