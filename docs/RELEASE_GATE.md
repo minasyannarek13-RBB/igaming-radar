@@ -27,7 +27,8 @@ This file is the single source of truth for Founder Early Access readiness.
 - 2026-09-02: `test/historical-replay.test.js` adds the historical regression gate: a shared-platform multi-operator replay can reach guarded HIGH only with independent historical provenance plus a healthy control; out-of-window timing and different dependencies produce no attribution.
 - 2026-09-03 validation: GitHub Actions CI run `33678566098` for commit `8a76cf22bdbae09df7744dc31bad1e0e2f062aed` completed successfully. Both Node.js matrix jobs (`test (20)` and `test (22)`) completed with successful Test steps.
 - 2026-09-03 scoreboard validation: GitHub Actions CI run `33684714247` for commit `eedc960cc0bdec7d8aaabc15d70422a460131ca7` completed successfully.
-- 2026-09-03 canonical-head validation: GitHub Actions CI run `33694749287` for commit `83b3da5715393d9bb837fba140c643eb76a877c5` completed successfully. The canonical main head therefore retains green CI after recording the release evidence; no regression was introduced by the scoreboard update.
+- 2026-09-03 canonical-head validation: GitHub Actions CI run `33694749287` for commit `83b3da5715393d9bb837fba140c643eb76a877c5` completed successfully.
+- 2026-09-03 latest canonical-head validation: GitHub Actions CI run `33699087611` for commit `122143ceb94a497466b3f2a3014cd50649045413` completed successfully. The latest main head therefore preserves green CI across the release-gating correlation, attribution and historical-regression suites.
 
 ## Definition of useful scan
 A scan is useful only when it produces evidence that can materially help an operator understand dependency topology, an incident, degradation, or likely attribution. A technically successful request with no useful intelligence does not count as useful.
