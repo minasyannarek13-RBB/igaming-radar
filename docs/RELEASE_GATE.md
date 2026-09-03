@@ -16,7 +16,7 @@ This file is the single source of truth for Founder Early Access readiness.
 | Historical regression | PASS | PASS: deterministic replay suite executed in current-head CI |
 | Crypto purchase E2E | PASS | PENDING production signed confirmation/entitlement verification |
 | Security regression | PASS | PASS |
-| Domain/Landing production runtime | PASS | PARTIAL PASS: deployed one-shot runtime; scheduled durable execution evidence pending |
+| Domain/Landing production runtime | PASS | PARTIAL PASS: current-head Vercel deployments successful; scheduled durable execution evidence pending |
 | Soak | 72h | 0h |
 | Verified usable product link | PASS | PENDING production E2E and soak |
 | Commercial gate | OPEN | CLOSED |
@@ -31,6 +31,7 @@ This file is the single source of truth for Founder Early Access readiness.
 - 2026-09-03 latest canonical-head validation: GitHub Actions CI run `33699087611` for commit `122143ceb94a497466b3f2a3014cd50649045413` completed successfully.
 - 2026-09-03 current canonical-head validation: GitHub Actions CI run `33707438144` for commit `c01b43aa0daf26c84694be2a1dd9115a7367d0d4` completed successfully. The canonical main head therefore remains green across the release-gating correlation, attribution and historical-regression suites.
 - 2026-09-03 canonical-head revalidation: GitHub Actions CI run `33710875993` for commit `4861783d91805038a4dfc6ae2be1fa04920cb9d9` completed successfully on first attempt. No regression was introduced after the prior release-evidence update.
+- 2026-09-03 deployment validation: canonical main head `ce6494394b6ed0a8fc461d39909f0dc5ace81f91` reports successful Vercel deployment checks for both `igaming-radar` and `igaming-radar-v05`. This validates deployment completion for the current head, but does not by itself satisfy durable scheduled monitoring, crypto entitlement E2E, soak, or usable-product-link gates.
 
 ## Definition of useful scan
 A scan is useful only when it produces evidence that can materially help an operator understand dependency topology, an incident, degradation, or likely attribution. A technically successful request with no useful intelligence does not count as useful.
